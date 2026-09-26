@@ -160,9 +160,14 @@ def format_payload(payload):
             if name == "docker_container_blkio" and tags.get("device") != "total":
                 continue
             values = selected_fields(fields, CONTAINER_FIELDS[name])
-            if name == "docker_container_status" and "uptime_ns" in fields:
-                uptime = selected_fields(fields, {"uptime_ns": "uptime_ns"})["uptime_ns"]
-                values["uptime_seconds"] = uptime // 1_000_000_000
+            if name == "docker_container_status":
+                # Telegraf reports started_at/finished_at as Unix nanoseconds; CRM wants seconds.
+                for key in ("started_at", "finished_at"):
+                    if key in values and values[key] >= 100_000_000_000_000_000:
+                        values[key] = values[key] // 1_000_000_000
+                if "uptime_ns" in fields:
+                    uptime = selected_fields(fields, {"uptime_ns": "uptime_ns"})["uptime_ns"]
+                    values["uptime_seconds"] = uptime // 1_000_000_000
             if not values:
                 continue
             # The source tag is present even on health-only batches, unlike the full ID field.

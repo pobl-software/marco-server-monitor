@@ -65,6 +65,16 @@ class PayloadTests(unittest.TestCase):
             "compose_project": "crm", "compose_service": "web",
         }])
 
+    def test_docker_status_nanosecond_lifecycle_times_become_unix_seconds(self):
+        metrics = fixture("telegraf-docker.json")["metrics"]
+        status = copy.deepcopy(next(m for m in metrics if m["name"] == "docker_container_status"))
+        status["fields"]["started_at"] = 1790457810269020000
+        status["fields"]["finished_at"] = 1790457839618276600
+        container = convert([status])["samples"][0]["containers"][0]
+        self.assertEqual(container["started_at"], 1790457810)
+        self.assertEqual(container["finished_at"], 1790457839)
+        self.assertEqual(container["uptime_seconds"], 600)
+
     def test_reordered_batches_and_duplicate_records_produce_identical_bytes(self):
         metrics = fixture("telegraf-host.json")["metrics"] + fixture("telegraf-docker.json")["metrics"]
         first = sender.format_payload(json.dumps({"metrics": metrics}).encode())
