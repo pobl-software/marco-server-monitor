@@ -21,7 +21,7 @@ The project includes the monitoring agent, installer and management tools. A sep
 ## Features
 
 - **Host metrics:** CPU, RAM, swap, filesystems, disk I/O, network traffic, load and uptime.
-- **Optional Docker metrics:** per-container CPU, memory, network, block I/O, lifecycle status and configured health checks; enable or disable in **Configure**.
+- **Optional Docker metrics:** per-container CPU, memory, network, block I/O, writable-layer/root-filesystem storage, lifecycle status/uptime and configured health checks; enable or disable in **Configure**.
 - **Direct HTTPS delivery:** JSON batches authenticated with a separate bearer token for each server.
 - **Terminal control panel:** guided setup, live service status, configuration, logs and service controls.
 - **Background operation:** a dedicated systemd service that starts at boot and collects as the unprivileged `telegraf` user.
@@ -95,6 +95,8 @@ Each request includes a stable `server_id` and hostname once. The versioned CRM 
 Temporary filesystems and Docker overlays are excluded; other mounted filesystems, including separate database volumes, are eligible. Loop, RAM and floppy block devices are excluded. Network collection defaults to `eth*` and `en*`, excluding loopback and protocol-wide `all` metrics. Check unusual or bonded interface names with `ip -brief link`.
 
 Docker monitoring is **disabled by default**, including for existing host-only installations. In **Configure**, select **Docker monitoring**, press **Space** to enable or disable it, then choose **Save and start monitor**. When enabled, samples include `host.docker` engine counts and `containers[]` rows combining per-container resource/status/health data and selected Compose labels. The [Docker setup guide](docs/installation.md#docker-container-monitoring) describes socket access; the [CRM contract](docs/crm-integration.md#docker-container-fields) describes fields and identity.
+
+Docker metrics from one collection share a timestamp so health and uptime can merge with resource metrics. Containers without a configured health check omit `health`. Storage fields are `storage_writable_layer_bytes` and `storage_rootfs_bytes`; they exclude volumes, bind mounts and logs. Storage collection requires Docker Engine 23.0+. Update strict receivers for the [storage extension](docs/crm-integration.md#version-and-rollout), then save the configuration from updated source to apply it to an installed monitor.
 
 Disk and network counters are cumulative. See the [integration guide](docs/crm-integration.md#rates-derived-values-and-counter-resets) for rate calculations and reboot handling. Resource usage measurements and their limits are recorded in [verification results](docs/verification.md#recorded-results).
 

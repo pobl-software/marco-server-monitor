@@ -42,6 +42,7 @@ CONTAINER_FIELDS = {
     "docker_container_blkio": {"io_service_bytes_recursive_read": "disk_read_bytes", "io_service_bytes_recursive_write": "disk_written_bytes"},
     "docker_container_status": {"oomkilled": "oom_killed", "exitcode": "exit_code", "started_at": "started_at", "finished_at": "finished_at"},
     "docker_container_health": {"health_status": "health", "failing_streak": "health_failures"},
+    "docker_disk_usage": {"size_rw": "storage_writable_layer_bytes", "size_root_fs": "storage_rootfs_bytes"},
 }
 FRACTIONAL_FIELDS = {"usage_active", "usage_iowait", "usage_steal", "usage_percent", "used_percent", "load1", "load5", "load15"}
 
@@ -59,6 +60,9 @@ def selected_fields(fields, mapping):
         if source not in fields:
             continue
         value = fields[source]
+        # Docker uses -1 when a storage size cannot be determined.
+        if source in ("size_rw", "size_root_fs") and type(value) is int and value == -1:
+            continue
         if source == "health_status":
             valid = isinstance(value, str) and bool(value)
         elif source == "oomkilled":
@@ -175,7 +179,11 @@ def format_payload(payload):
             if not re.fullmatch(r"[0-9a-f]{12}", identifier):
                 raise DeliveryError("Metric batch contains an invalid Docker container identifier.")
             row = containers.setdefault(timestamp, {}).setdefault(identifier, {"id": identifier})
-            merge(row, {"name": resource_tag(tags, "container_name"), "state": resource_tag(tags, "container_status")})
+            merge(row, {"name": resource_tag(tags, "container_name")})
+            # DiskUsage provides identity and sizes, but no state or Compose labels.
+            # Keep storage-only fragments when Telegraf splits a gather across batches.
+            if name != "docker_disk_usage" or "container_status" in tags:
+                merge(row, {"state": resource_tag(tags, "container_status")})
             merge(row, values)
             for source, destination in (("com.docker.compose.project", "compose_project"), ("com.docker.compose.service", "compose_service")):
                 if source in tags:

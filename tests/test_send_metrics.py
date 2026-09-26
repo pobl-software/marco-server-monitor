@@ -102,8 +102,23 @@ class SenderTests(unittest.TestCase):
         container = body['samples'][0]['containers'][0]
         self.assertEqual(container['id'], '0123456789ab')
         self.assertEqual(container['health'], 'healthy')
+        self.assertEqual(container['uptime_seconds'], 600)
+        self.assertEqual(container['storage_writable_layer_bytes'], 10485760)
+        self.assertEqual(container['storage_rootfs_bytes'], 524288000)
         self.assertIs(container['oom_killed'], False)
         self.assertNotIn('container_id', container)
+
+    def test_storage_only_fragment_reaches_receiver_without_lifecycle_fields(self):
+        fixture = json.loads((SENDER.parents[1] / 'tests/fixtures/telegraf-docker.json').read_bytes())
+        storage = next(m for m in fixture['metrics'] if m['name'] == 'docker_disk_usage')
+        payload = json.dumps({'metrics': [storage]}).encode()
+        self.assertEqual(self.send(payload=payload).returncode, 0)
+        sample = json.loads(self.requests[0][2])['samples'][0]
+        self.assertEqual(sample['host'], {})
+        self.assertEqual(sample['containers'], [{
+            'id': '0123456789ab', 'name': 'crm-web-1',
+            'storage_writable_layer_bytes': 10485760, 'storage_rootfs_bytes': 524288000,
+        }])
 
     def test_malformed_json_is_rejected_without_sending_or_echoing_input(self):
         self.assertNotEqual(self.send(payload=b'{"secret":"' + TOKEN.encode()).returncode, 0)

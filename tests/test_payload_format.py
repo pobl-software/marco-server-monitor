@@ -61,9 +61,62 @@ class PayloadTests(unittest.TestCase):
             "cpu_percent": 125.5, "memory_used_bytes": 268435456, "memory_limit_bytes": 1073741824,
             "network_received_bytes": 123456789, "network_sent_bytes": 987654321,
             "disk_read_bytes": 3456789, "disk_written_bytes": 4567890,
+            "storage_writable_layer_bytes": 10485760, "storage_rootfs_bytes": 524288000,
             "oom_killed": False, "exit_code": 0, "started_at": 1790423400, "finished_at": 0, "uptime_seconds": 600,
             "compose_project": "crm", "compose_service": "web",
         }])
+
+    def test_storage_only_fragment_keeps_identity_without_inventing_state_or_health(self):
+        metric = next(m for m in fixture("telegraf-docker.json")["metrics"] if m["name"] == "docker_disk_usage")
+        sample = convert([metric])["samples"][0]
+        self.assertEqual(sample["host"], {})
+        self.assertEqual(sample["containers"], [{
+            "id": "0123456789ab", "name": "crm-web-1",
+            "storage_writable_layer_bytes": 10485760, "storage_rootfs_bytes": 524288000,
+        }])
+
+    def test_storage_unavailable_sizes_are_omitted_and_zero_is_preserved(self):
+        metric = next(m for m in fixture("telegraf-docker.json")["metrics"] if m["name"] == "docker_disk_usage")
+        metric["fields"] = {"size_rw": 0, "size_root_fs": -1}
+        row = convert([metric])["samples"][0]["containers"][0]
+        self.assertEqual(row["storage_writable_layer_bytes"], 0)
+        self.assertNotIn("storage_rootfs_bytes", row)
+        metric["fields"]["size_rw"] = -1
+        self.assertIsNone(convert([metric]))
+
+    def test_invalid_storage_values_are_rejected(self):
+        metric = next(m for m in fixture("telegraf-docker.json")["metrics"] if m["name"] == "docker_disk_usage")
+        for bad in (None, True, "100", -2, 1.5, -1.0):
+            metric["fields"]["size_rw"] = bad
+            with self.subTest(value=bad), self.assertRaises(sender.DeliveryError):
+                convert([metric])
+
+    def test_engine_image_and_volume_disk_usage_are_ignored(self):
+        for fields in ({"layers_size": 123}, {"size": 456, "shared_size": 123}, {"usage": 789, "ref_count": 1}):
+            metric = {"name": "docker_disk_usage", "fields": fields,
+                      "tags": {"server_id": "production-01", "host": "ubuntu-01"}, "timestamp": 1790424000}
+            with self.subTest(fields=fields):
+                self.assertIsNone(convert([metric]))
+
+    def test_health_and_uptime_stay_attached_to_each_collection(self):
+        first = fixture("telegraf-docker.json")["metrics"]
+        second = copy.deepcopy(first)
+        for metric in second:
+            metric["timestamp"] += 60
+            if metric["name"] == "docker_container_health":
+                metric["fields"].update(health_status="unhealthy", failing_streak=3)
+            if metric["name"] == "docker_container_status":
+                metric["fields"]["uptime_ns"] += 60_000_000_000
+        samples = convert(list(reversed(second + first)))["samples"]
+        self.assertEqual([s["containers"][0]["health"] for s in samples], ["healthy", "unhealthy"])
+        self.assertEqual([s["containers"][0]["uptime_seconds"] for s in samples], [600, 660])
+
+    def test_container_without_healthcheck_keeps_uptime_without_claiming_health(self):
+        metrics = [m for m in fixture("telegraf-docker.json")["metrics"] if m["name"] != "docker_container_health"]
+        row = convert(metrics)["samples"][0]["containers"][0]
+        self.assertEqual(row["uptime_seconds"], 600)
+        self.assertNotIn("health", row)
+        self.assertNotIn("health_failures", row)
 
     def test_docker_status_nanosecond_lifecycle_times_become_unix_seconds(self):
         metrics = fixture("telegraf-docker.json")["metrics"]
@@ -122,6 +175,18 @@ class PayloadTests(unittest.TestCase):
         samples = convert([second, first])["samples"]
         self.assertEqual([s["collected_at"] for s in samples], [1790413200, 1790413210])
         self.assertEqual([s["host"]["cpu"]["usage_percent"] for s in samples], [23, 42])
+
+    def test_older_docker_timestamps_are_preserved_without_carrying_health_forward(self):
+        metrics = fixture("telegraf-docker.json")["metrics"]
+        for metric in metrics:
+            if metric["name"] in ("docker_container_cpu", "docker_container_mem", "docker_container_net", "docker_container_blkio"):
+                metric["timestamp"] += 2
+        samples = convert(metrics)["samples"]
+        self.assertEqual([s["collected_at"] for s in samples], [1790424000, 1790424002])
+        self.assertEqual(samples[0]["containers"][0]["health"], "healthy")
+        self.assertEqual(samples[0]["containers"][0]["uptime_seconds"], 600)
+        self.assertNotIn("health", samples[1]["containers"][0])
+        self.assertNotIn("uptime_seconds", samples[1]["containers"][0])
 
     def test_large_integer_counters_and_zero_values_are_preserved(self):
         network = next(m for m in fixture("telegraf-host.json")["metrics"] if m["name"] == "net")

@@ -104,6 +104,9 @@ class ValidationTests(unittest.TestCase):
         docker = parsed["inputs"]["docker"][0]
         self.assertEqual(docker["endpoint"], "unix:///var/run/docker.sock")
         self.assertTrue(docker["source_tag"])
+        self.assertEqual(docker["time_source"], "collection_start")
+        self.assertEqual(docker["storage_objects"], ["container"])
+        self.assertTrue({"health_status", "failing_streak", "uptime_ns", "size_rw", "size_root_fs"}.issubset(docker["fieldinclude"]))
         self.assertEqual(docker["total_include"], ["cpu", "blkio", "network"])
         self.assertIn("exited", docker["container_state_include"])
         self.assertEqual(docker["docker_label_include"], ["com.docker.compose.project", "com.docker.compose.service"])

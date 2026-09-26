@@ -94,13 +94,16 @@ def render_config(args, sender=None):
     docker_input = '''[[inputs.docker]]
   endpoint = "unix:///var/run/docker.sock"
   timeout = "5s"
+  # Docker stats arrive after inspect/health; keep one timestamp per gather.
+  time_source = "collection_start"
   source_tag = true
+  storage_objects = ["container"]
   container_state_include = ["running", "paused", "restarting", "exited", "dead", "created"]
   perdevice_include = []
   total_include = ["cpu", "blkio", "network"]
   docker_label_include = ["com.docker.compose.project", "com.docker.compose.service"]
   tag_env = []
-  fieldinclude = ["n_containers", "n_containers_running", "n_containers_stopped", "n_containers_paused", "usage_percent", "usage", "limit", "rx_bytes", "tx_bytes", "io_service_bytes_recursive_read", "io_service_bytes_recursive_write", "oomkilled", "exitcode", "started_at", "finished_at", "uptime_ns", "health_status", "failing_streak"]
+  fieldinclude = ["n_containers", "n_containers_running", "n_containers_stopped", "n_containers_paused", "usage_percent", "usage", "limit", "rx_bytes", "tx_bytes", "io_service_bytes_recursive_read", "io_service_bytes_recursive_write", "oomkilled", "exitcode", "started_at", "finished_at", "uptime_ns", "health_status", "failing_streak", "size_rw", "size_root_fs"]
 ''' if getattr(args, "docker_enabled", False) else ""
     text = text.replace("@@DOCKER_INPUT@@", docker_input)
     replacements = {

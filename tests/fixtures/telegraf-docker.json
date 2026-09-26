@@ -129,6 +129,22 @@
       "timestamp": 1790424000
     },
     {
+      "name": "docker_disk_usage",
+      "fields": {
+        "size_rw": 10485760,
+        "size_root_fs": 524288000
+      },
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "source": "0123456789ab",
+        "container_name": "crm-web-1",
+        "container_image": "example/crm",
+        "container_version": "latest"
+      },
+      "timestamp": 1790424000
+    },
+    {
       "name": "docker",
       "fields": {
         "n_containers": 1,

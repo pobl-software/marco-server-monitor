@@ -274,6 +274,16 @@
           "type": "integer",
           "minimum": 0
         },
+        "storage_writable_layer_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Container writable layer size; excludes volumes, bind mounts and logs."
+        },
+        "storage_rootfs_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Container root filesystem size including shared image layers; excludes volumes, bind mounts and logs."
+        },
         "health_failures": {
           "type": "integer",
           "minimum": 0
@@ -329,10 +339,14 @@
       "additionalProperties": false,
       "required": [
         "id",
-        "name",
-        "state"
+        "name"
       ],
-      "minProperties": 4
+      "anyOf": [
+        {"required": ["state"], "minProperties": 4},
+        {"required": ["storage_writable_layer_bytes"]},
+        {"required": ["storage_rootfs_bytes"]}
+      ],
+      "minProperties": 3
     },
     "host": {
       "type": "object",
