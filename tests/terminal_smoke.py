@@ -101,6 +101,10 @@ def demo_test(project):
         session.wait_for("STOPPED")
         session.send("s")
         session.wait_for("RUNNING")
+        session.send("x")
+        session.wait_for("STOPPED")
+        session.send("a")
+        session.wait_for("RUNNING")
         session.send("c")
         session.wait_for("Configure monitor")
         session.send("\t" * 6)
@@ -130,7 +134,7 @@ def demo_test(project):
         session.send("y")
         session.wait_for("NOT INSTALLED")
         session.quit()
-    print("Real terminal preview: Docker enable/disable and saved settings, service controls, uninstall and clean exit passed.")
+    print("Real terminal preview: Docker enable/disable, saved settings, service controls, update, uninstall and clean exit passed.")
 
 
 def uninstall_test(project):

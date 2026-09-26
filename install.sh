@@ -71,7 +71,7 @@ main() {
   curl --fail --silent --show-error --location --proto '=https' --proto-redir '=https' \
     --connect-timeout 10 --max-time 120 --max-filesize 67108864 \
     "https://github.com/$repository/archive/$encoded_ref.tar.gz" --output "$download_dir/source.tar.gz"
-  python3 - "$download_dir/source.tar.gz" <<'SERVER_MONITOR_BOOTSTRAP_PYTHON'
+  python3 - "$download_dir/source.tar.gz" "$repository" <<'SERVER_MONITOR_BOOTSTRAP_PYTHON'
 import ast
 import fcntl
 import os
@@ -154,16 +154,19 @@ def extract(archive, destination):
                     shutil.copyfileobj(source, output)
                 target.chmod(0o755 if member.mode & 0o111 else 0o644)
     for required in ("install.sh", "monitor.sh", "scripts/install.py", "scripts/terminal_ui.py",
-                     "scripts/send_metrics.py", "config/telegraf.conf.tmpl", "systemd/server-monitor.service"):
+                     "scripts/send_metrics.py", "scripts/update.py", "config/telegraf.conf.tmpl", "systemd/server-monitor.service"):
         if not (destination / required).is_file():
             raise ValueError(f"Incomplete source archive: missing {required}.")
     for script in ("install.sh", "monitor.sh"):
         subprocess.run(["bash", "-n", str(destination / script)], check=True, stdin=subprocess.DEVNULL)
-    for script in ("scripts/install.py", "scripts/terminal_ui.py", "scripts/send_metrics.py"):
-        ast.parse((destination / script).read_text(), filename=script)
+    for script in (destination / "scripts").glob("*.py"):
+        ast.parse(script.read_text(), filename=str(script))
 
 
-def install_bundle(archive, directory=Path("/opt/server-monitor"), launcher=Path("/usr/local/bin/server-monitor")):
+def install_bundle(archive, directory=Path("/opt/server-monitor"), launcher=Path("/usr/local/bin/server-monitor"),
+                   activate=None, repository="pobl-software/marco-server-monitor"):
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_.-]*", repository) or ".." in repository:
+        raise ValueError("Invalid source repository.")
     managed(directory, launcher)
     directory.mkdir(mode=0o755, exist_ok=True)
     (directory / ".source-managed").write_text(MARKER + "\n")
@@ -178,6 +181,7 @@ def install_bundle(archive, directory=Path("/opt/server-monitor"), launcher=Path
             owned(releases, directory=True)
         releases.mkdir(mode=0o755, exist_ok=True)
         old = current_release(directory)
+        old_launcher = launcher.read_bytes() if launcher.exists() else None
         target = "releases/" + uuid.uuid4().hex
         candidate = directory / target
         candidate.mkdir(mode=0o755)
@@ -185,6 +189,7 @@ def install_bundle(archive, directory=Path("/opt/server-monitor"), launcher=Path
         try:
             extract(archive, candidate)
             (candidate / ".source-release").write_text(MARKER + "\n")
+            (candidate / ".source-repository").write_text(repository + "\n")
             launcher.parent.mkdir(parents=True, exist_ok=True)
             text = ("#!/usr/bin/env bash\n" + LAUNCHER_MARKER + "\nset -euo pipefail\n"
                     + 'exec bash "' + str(directory) + '/current/install.sh" "$@"\n')
@@ -196,36 +201,55 @@ def install_bundle(archive, directory=Path("/opt/server-monitor"), launcher=Path
                 name.chmod(0o755)
                 temporary_link.symlink_to(target)
                 os.replace(temporary_link, directory / "current")
-                try:
-                    os.replace(name, launcher)
-                except OSError:
-                    if old:
-                        temporary_link.symlink_to(old)
-                        os.replace(temporary_link, directory / "current")
-                    else:
-                        (directory / "current").unlink()
-                    raise
+                os.replace(name, launcher)
+                if activate is not None:
+                    activate(candidate)
             finally:
                 name.unlink(missing_ok=True)
         except BaseException:
             temporary_link.unlink(missing_ok=True)
+            if old:
+                temporary_link.symlink_to(old)
+                os.replace(temporary_link, directory / "current")
+            else:
+                (directory / "current").unlink(missing_ok=True)
+            if old_launcher is not None:
+                # Restore the previous command atomically if activation failed.
+                with tempfile.NamedTemporaryFile(dir=launcher.parent, prefix=".server-monitor-", delete=False) as output:
+                    restore = Path(output.name)
+                    output.write(old_launcher)
+                try:
+                    restore.chmod(0o755)
+                    os.replace(restore, launcher)
+                finally:
+                    restore.unlink(missing_ok=True)
+            else:
+                launcher.unlink(missing_ok=True)
             shutil.rmtree(candidate)
             raise
         # Keep the new source and the previous source; only prune our own marked releases.
-        for entry in releases.iterdir():
-            if entry.name in {Path(target).name, Path(old).name if old else ""}:
-                continue
-            if entry.is_symlink() or not re.fullmatch(r"[0-9a-f]{32}", entry.name):
-                continue
-            marker = entry / ".source-release"
-            if marker.is_file() and not marker.is_symlink() and marker.read_text() == MARKER + "\n":
-                shutil.rmtree(entry)
+        try:
+            entries = list(releases.iterdir())
+        except OSError:
+            entries = []
+        for entry in entries:
+            # Cleanup cannot turn a successful activation into a failed update.
+            try:
+                if entry.name in {Path(target).name, Path(old).name if old else ""}:
+                    continue
+                if entry.is_symlink() or not re.fullmatch(r"[0-9a-f]{32}", entry.name):
+                    continue
+                marker = entry / ".source-release"
+                if marker.is_file() and not marker.is_symlink() and marker.read_text() == MARKER + "\n":
+                    shutil.rmtree(entry)
+            except OSError:
+                pass
     return directory / "current/install.sh"
 
 
 if __name__ == "__main__":
     try:
-        install_bundle(Path(sys.argv[1]))
+        install_bundle(Path(sys.argv[1]), repository=sys.argv[2])
     except (OSError, ValueError, tarfile.TarError, SyntaxError, subprocess.CalledProcessError) as error:
         print(f"Download installation failed: {error}", file=sys.stderr)
         sys.exit(1)

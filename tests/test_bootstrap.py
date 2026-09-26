@@ -33,6 +33,7 @@ class BootstrapTests(unittest.TestCase):
                 'scripts/install.py': 'pass\n',
                 'scripts/terminal_ui.py': 'pass\n',
                 'scripts/send_metrics.py': 'pass\n',
+                'scripts/update.py': 'pass\n',
                 'config/telegraf.conf.tmpl': '# fixture\n',
                 'systemd/server-monitor.service': '# fixture\n',
             }.items():
@@ -79,6 +80,21 @@ class BootstrapTests(unittest.TestCase):
         self.bundle(omit='scripts/terminal_ui.py')
         with self.assertRaises(ValueError):
             self.install()
+        self.assertEqual((self.directory / 'current').readlink(), current)
+        self.assertEqual(self.launcher.read_bytes(), launcher)
+        self.assertEqual(len(list((self.directory / 'releases').iterdir())), 1)
+
+    def test_failed_activation_restores_previous_source_and_launcher(self):
+        self.install()
+        current = (self.directory / 'current').readlink()
+        launcher = self.launcher.read_bytes()
+
+        def reject(candidate):
+            self.assertEqual(candidate.resolve(), (self.directory / 'current').resolve())
+            raise ValueError('activation failed')
+
+        with self.assertRaises(ValueError):
+            bootstrap.install_bundle(self.archive, self.directory, self.launcher, activate=reject)
         self.assertEqual((self.directory / 'current').readlink(), current)
         self.assertEqual(self.launcher.read_bytes(), launcher)
         self.assertEqual(len(list((self.directory / 'releases').iterdir())), 1)
@@ -166,7 +182,7 @@ class BootstrapTests(unittest.TestCase):
         previous = (self.directory / 'current').readlink()
         with tarfile.open(self.archive, 'w:gz') as archive:
             for name in ('install.sh', 'monitor.sh', 'scripts/install.py', 'scripts/terminal_ui.py',
-                         'scripts/send_metrics.py', 'config/telegraf.conf.tmpl', 'systemd/server-monitor.service'):
+                         'scripts/send_metrics.py', 'scripts/update.py', 'config/telegraf.conf.tmpl', 'systemd/server-monitor.service'):
                 data = b'if: invalid Python' if name.endswith('.py') else b'# fixture\n'
                 info = tarfile.TarInfo('project-main/' + name)
                 info.size = len(data)
@@ -193,6 +209,7 @@ class BootstrapTests(unittest.TestCase):
         result = subprocess.run(['bash', str(PROJECT / 'install.sh'), '--help'], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0)
         self.assertIn('--uninstall', result.stdout)
+        self.assertIn('--update', result.stdout)
 
 
 if __name__ == '__main__':

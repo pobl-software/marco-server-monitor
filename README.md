@@ -96,7 +96,7 @@ Temporary filesystems and Docker overlays are excluded; other mounted filesystem
 
 Docker monitoring is **disabled by default**, including for existing host-only installations. In **Configure**, select **Docker monitoring**, press **Space** to enable or disable it, then choose **Save and start monitor**. When enabled, samples include `host.docker` engine counts and `containers[]` rows combining per-container resource/status/health data and selected Compose labels. The [Docker setup guide](docs/installation.md#docker-container-monitoring) describes socket access; the [CRM contract](docs/crm-integration.md#docker-container-fields) describes fields and identity.
 
-Docker metrics from one collection share a timestamp so health and uptime can merge with resource metrics. Containers without a configured health check omit `health`. Storage fields are `storage_writable_layer_bytes` and `storage_rootfs_bytes`; they exclude volumes, bind mounts and logs. Storage collection requires Docker Engine 23.0+. Update strict receivers for the [storage extension](docs/crm-integration.md#version-and-rollout), then save the configuration from updated source to apply it to an installed monitor.
+Docker timestamps are rounded to the configured collection interval so health and uptime can merge with resource metrics when collection completes near the same interval boundary. Slow collection can still produce partial rows. Containers without a configured health check omit `health`. Storage fields are `storage_writable_layer_bytes` and `storage_rootfs_bytes`; they exclude volumes, bind mounts and logs. Storage collection requires Docker Engine 23.0+. Update strict receivers for the [storage extension](docs/crm-integration.md#version-and-rollout), then save the configuration from updated source to apply it to an installed monitor.
 
 Disk and network counters are cumulative. See the [integration guide](docs/crm-integration.md#rates-derived-values-and-counter-resets) for rate calculations and reboot handling. Resource usage measurements and their limits are recorded in [verification results](docs/verification.md#recorded-results).
 
@@ -140,6 +140,7 @@ Open `sudo server-monitor`, then use arrows/Tab and Enter, or these shortcuts:
 | **K** | Check configuration and local metric collection |
 | **B** | Restore the previous configuration and token |
 | **L** | View recent logs with current/previous tokens redacted |
+| **A** | Update from `main` using saved settings and token |
 | **U** | Uninstall after confirmation |
 | **Q** | Close the interface; the service continues running |
 
@@ -152,6 +153,14 @@ sudo systemctl status server-monitor.service --no-pager
 sudo journalctl -u server-monitor.service -n 50 --no-pager
 sudo server-monitor --check
 ```
+
+Update to the latest code on `main`, reinstall with the saved settings and token, and restart the monitor:
+
+```sh
+sudo server-monitor --update
+```
+
+The update preserves startup at boot and attempts to restore the previous installation if it fails. Older installations need the one-line installer run once to obtain this command; choose **Update** in the reopened panel.
 
 The downloaded launcher also supports `--rollback` and `--uninstall`. For a copied checkout, use `sudo ./install.sh` with the same options. Uninstall removes the managed service, configuration, credentials and backups; Telegraf, its APT repository and downloaded source remain.
 

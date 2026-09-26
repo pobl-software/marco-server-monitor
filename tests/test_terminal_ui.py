@@ -119,6 +119,13 @@ class ControllerTests(unittest.TestCase):
     def test_settings_read_current_config_without_resetting_custom_defaults(self):
         self.assertEqual(self.controller.settings(), self.settings)
 
+    def test_update_delegates_to_installer_under_existing_action_lock(self):
+        self.installer.update = MagicMock()
+        message = self.controller.perform("update", lambda _: None)
+        self.installer.update.assert_called_once_with()
+        self.assertIn("Reopen", message)
+        self.assertIsNone(self.installer.progress)
+
     def test_saved_docker_setting_is_read_and_preserved_on_reconfigure(self):
         self.settings.docker_enabled = True
         (self.release / "telegraf.conf").write_text(install.render_config(self.settings))
@@ -251,6 +258,7 @@ class RenderingTests(unittest.TestCase):
         app.refresh()
         app.render()
         self.assertIn("Enabled", " ".join(screen.text))
+        self.assertIn("Update", " ".join(screen.text))
 
     def test_uninstall_defaults_to_cancel_and_escape_never_removes(self):
         app = ui.TerminalUI(FakeScreen(), ui.DemoController(), demo=True)
@@ -310,6 +318,8 @@ class RenderingTests(unittest.TestCase):
             controller.perform("stop", lambda _: None)
             self.assertEqual(controller.snapshot()["label"], "Stopped")
             controller.perform("start", lambda _: None)
+            self.assertEqual(controller.snapshot()["label"], "Running")
+            controller.perform("update", lambda _: None)
             self.assertEqual(controller.snapshot()["label"], "Running")
 
 

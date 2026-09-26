@@ -30,6 +30,7 @@ Use arrows/Tab and Enter, or the keyboard shortcuts:
 | **K** | Check configuration and metric collection |
 | **B** | Restore the previous configuration and token |
 | **L** | View recent agent logs; current/previous tokens are redacted |
+| **A** | Update from `main`, retain settings/token and restart |
 | **U** | Uninstall the monitor after confirmation |
 | **Q** | Close the interface; a running monitor continues in the background |
 
@@ -56,6 +57,16 @@ sudo server-monitor --check
 For a copied checkout, run `sudo ./install.sh --check` from the project directory instead.
 
 `--check` validates input collection, not HTTPS delivery. Confirm that your CRM receives fresh samples after the first reporting interval. Keep time synchronised (`timedatectl status`). Receiver/network failures leave the agent running and appear in the journal; a running service alone is not proof of delivery.
+
+To fetch and apply the latest `main` release with saved settings and credentials:
+
+```sh
+sudo server-monitor --update
+```
+
+For a copied checkout containing the updater, use `sudo ./install.sh --update`. It also installs the managed source and `server-monitor` launcher. The terminal panel offers **Update** (A); reopen the panel afterwards to load its new code. Older versions must first obtain the updater by rerunning the one-line installer.
+
+Update stops monitoring during download and validation, installs the new sender/configuration, and starts monitoring again, preserving startup at boot. A failed update restores the previous source/configuration and attempts to restart a previously active service; an already stopped service remains stopped on failure. As with any stop, unsent in-memory samples are lost. Settings and tokens stay local and do not enter download requests or command arguments. The installed Telegraf package is not upgraded. Confirm fresh CRM samples after success.
 
 Re-run installation to change endpoint, token, server ID or timing. Configuration/token pairs are staged together, validated, then activated through a release link. Startup is checked for five seconds; failed activation restores the old release and service state. The last successful release (including its token and service unit) is retained:
 
@@ -84,7 +95,7 @@ Unsent metrics are retried at subsequent flushes. The default memory buffer over
 - **Missing network data:** inspect `ip -brief link` and reinstall with matching interface names/globs.
 - **No CPU percentages in an initial sample:** counters need a subsequent collection; normal continuous collection supplies these.
 - **Missing filesystem:** confirm it is mounted and accessible to the Telegraf user; check its type against the exclusions.
-- **Missing Docker metrics:** check the saved Docker setting, Docker daemon state and `/var/run/docker.sock`. Start Docker before enabling; the standard root-owned socket must allow a dedicated non-root group read/write access. A changed socket group requires **Configure** and **Save and start**. A Docker-enabled monitor requires Docker available at startup; disable Docker collection if you need host-only operation without Docker. Stopped containers may have lifecycle status without resource data. Confirm the receiver accepts schema v1 container rows with strings and booleans. Missing health can mean no configured `HEALTHCHECK`; it must not be replaced with an assumed healthy value. Separate status/uptime and resource rows seconds apart indicate an older configuration: regenerate it from updated source to apply `time_source = "collection_start"`. Storage requires Docker Engine 23.0+ and receiver support for the storage extension; its sizes exclude volumes and bind mounts.
+- **Missing Docker metrics:** check the saved Docker setting, Docker daemon state and `/var/run/docker.sock`. Start Docker before enabling; the standard root-owned socket must allow a dedicated non-root group read/write access. A changed socket group requires **Configure** and **Save and start**. A Docker-enabled monitor requires Docker available at startup; disable Docker collection if you need host-only operation without Docker. Stopped containers may have lifecycle status without resource data. Confirm the receiver accepts schema v1 container rows with strings and booleans. Missing health can mean no configured `HEALTHCHECK`; it must not be replaced with an assumed healthy value. Regenerate older configurations from updated source to apply Docker timestamp precision equal to the collection interval. Slow collection can still split rows. If validation reports an unused `time_source` field, update the monitor source and save again: the corrected installer uses `precision` instead. Storage requires Docker Engine 23.0+ and receiver support for the storage extension; its sizes exclude volumes and bind mounts.
 - **Installer errors:** command output is withheld because expanded config errors can contain secrets. The HTTPS sender reports only status codes or generic connection errors and never logs receiver response bodies. `--check` and `journalctl` help diagnose issues. Do not enable debug output or share credential files.
 
 Installation uses the currently documented InfluxData signing-key fingerprint. If the upstream key rotates, installation fails closed; verify the new fingerprint against the official documentation before updating the installer. A failed first installation can leave the dependency package/repository installed even though no monitor service was activated.

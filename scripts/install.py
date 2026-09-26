@@ -94,8 +94,8 @@ def render_config(args, sender=None):
     docker_input = '''[[inputs.docker]]
   endpoint = "unix:///var/run/docker.sock"
   timeout = "5s"
-  # Docker stats arrive after inspect/health; keep one timestamp per gather.
-  time_source = "collection_start"
+  # Round Docker's inspect/stats timestamps to the configured collection interval.
+  precision = @@INTERVAL@@
   source_tag = true
   storage_objects = ["container"]
   container_state_include = ["running", "paused", "restarting", "exited", "dead", "created"]
@@ -330,7 +330,7 @@ class Installer:
         atomic_link(self.directory / "current", target)
         atomic_write(self.unit, (self.directory / target / "server-monitor.service").read_text(), 0o644)
         self.run("systemctl", "daemon-reload")
-        self.run("systemctl", "enable", SERVICE)
+        self.run("systemctl", "enable" if getattr(self, "enable_at_boot", True) else "disable", SERVICE)
         self.run("systemctl", "restart", SERVICE)
         self.wait_active()
 
@@ -372,14 +372,17 @@ class Installer:
             self.run("systemd-analyze", "verify", str(candidate / "server-monitor.service"))
             switched = True
             self.activate(target)
+            if old:
+                atomic_link(self.directory / "previous", old)
         except BaseException:
             if switched:
                 self.restore_state(old, old_unit, was_active, was_enabled)
             shutil.rmtree(candidate)
             raise
-        if old:
-            atomic_link(self.directory / "previous", old)
-        self.cleanup()
+        try:
+            self.cleanup()
+        except OSError:
+            self.message("Monitor installed; some older release files could not be cleaned up.")
         self.message("Installed server-monitor.service. A running service does not confirm CRM delivery.")
         self.message("Check logs: sudo journalctl -u server-monitor.service -n 50 --no-pager")
         self.message("Confirm fresh samples in your CRM after the first reporting interval.")
@@ -407,6 +410,10 @@ class Installer:
             raise InstallError("No installed monitoring configuration found.")
         self.validate_release(target)
         self.message("Configuration and input collection passed; --check does not send metrics or test the receiver.")
+
+    def update(self):
+        from update import update_monitor
+        update_monitor(self)
 
     def rollback(self):
         self.account()
@@ -467,6 +474,7 @@ def main():
     mode.add_argument("--check", action="store_true", help="Validate installed config/inputs without sending metrics")
     mode.add_argument("--rollback", action="store_true", help="Restore previous successful configuration and token")
     mode.add_argument("--uninstall", action="store_true", help="Stop and remove this monitor, retaining the Telegraf package")
+    mode.add_argument("--update", action="store_true", help="Fetch main and reinstall/start the monitor with its saved settings and token")
     parser.add_argument("--url", help="CRM HTTPS ingestion URL")
     parser.add_argument("--server-id", help="Stable CRM server identifier")
     parser.add_argument("--token-file", type=Path, help="Owner-only token file; otherwise prompted with hidden input")
@@ -477,7 +485,7 @@ def main():
                         help="Enable Docker container metrics and service-only Docker socket access (default: disabled)")
     args = parser.parse_args()
     try:
-        if not (args.check or args.rollback or args.uninstall):
+        if not (args.check or args.rollback or args.uninstall or args.update):
             if not args.url or not args.server_id:
                 parser.error("installation requires --url and --server-id")
             validate_options(args)
@@ -490,6 +498,8 @@ def main():
                 installer.rollback()
             elif args.uninstall:
                 installer.uninstall()
+            elif args.update:
+                installer.update()
             else:
                 token = read_token(args.token_file)
                 installer.install(args, token)

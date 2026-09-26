@@ -104,7 +104,8 @@ class ValidationTests(unittest.TestCase):
         docker = parsed["inputs"]["docker"][0]
         self.assertEqual(docker["endpoint"], "unix:///var/run/docker.sock")
         self.assertTrue(docker["source_tag"])
-        self.assertEqual(docker["time_source"], "collection_start")
+        self.assertNotIn("time_source", docker)
+        self.assertEqual(docker["precision"], "10s")
         self.assertEqual(docker["storage_objects"], ["container"])
         self.assertTrue({"health_status", "failing_streak", "uptime_ns", "size_rw", "size_root_fs"}.issubset(docker["fieldinclude"]))
         self.assertEqual(docker["total_include"], ["cpu", "blkio", "network"])
@@ -112,6 +113,19 @@ class ValidationTests(unittest.TestCase):
         self.assertEqual(docker["docker_label_include"], ["com.docker.compose.project", "com.docker.compose.service"])
         self.assertEqual(docker["tag_env"], [])
         self.assertEqual(parsed["global_tags"]["server_id"], "server-1")
+
+    def test_docker_precision_follows_custom_collection_interval_only_for_docker(self):
+        import tomllib
+        for interval in ("1s", "10s", "1m", "1h"):
+            with self.subTest(interval=interval):
+                parsed = tomllib.loads(install.render_config(options(docker_enabled=True, interval=interval,
+                                                                   flush_interval=interval)))
+                self.assertEqual(parsed["inputs"]["docker"][0]["precision"], interval)
+                self.assertNotIn("time_source", parsed["inputs"]["docker"][0])
+                self.assertNotIn("precision", parsed["agent"])
+                for name, inputs in parsed["inputs"].items():
+                    if name != "docker":
+                        self.assertNotIn("precision", inputs[0])
 
     def test_docker_toggle_rejects_non_boolean_values(self):
         for value in ("false", 1, None):

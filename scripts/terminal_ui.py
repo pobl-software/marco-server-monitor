@@ -148,6 +148,9 @@ class MonitorController:
                     progress("Restoring the previous configuration…")
                     installer.rollback()
                     return "Previous configuration and token restored; monitor started."
+                if action == "update":
+                    installer.update()
+                    return "Monitor updated and started. Reopen this panel to load the updated interface; confirm fresh CRM samples."
                 raise InstallError("Unknown monitor action.")
         finally:
             installer.progress = previous_progress
@@ -190,7 +193,7 @@ class DemoController:
             raise InstallError("Set up the monitor before using service controls.")
         if action == "configure":
             self.config = settings
-        if action in {"start", "restart", "configure", "rollback"}:
+        if action in {"start", "restart", "configure", "rollback", "update"}:
             self.state = "Running"
         elif action == "stop":
             self.state = "Stopped"
@@ -276,7 +279,7 @@ class SetupForm:
 class TerminalUI:
     ACTIONS = (("s", "Start", "start"), ("x", "Stop", "stop"), ("r", "Restart", "restart"),
                ("c", "Configure", "configure"), ("k", "Check", "check"), ("b", "Rollback", "rollback"),
-               ("l", "Logs", "logs"), ("u", "Uninstall", "uninstall"), ("q", "Quit", "quit"))
+               ("l", "Logs", "logs"), ("a", "Update", "update"), ("u", "Uninstall", "uninstall"), ("q", "Quit", "quit"))
 
     def __init__(self, screen, controller, demo=False):
         self.screen, self.controller, self.demo = screen, controller, demo
