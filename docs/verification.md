@@ -2,6 +2,10 @@
 
 ## Recorded results
 
+The CRM schema v1 addition was checked locally on **2026-09-26**: **108 automated tests passed**, including host/container grouping, retained collection times, partial batches, reordered/duplicate input, separate resources, integer counter precision, invalid/conflicting data, allowlist filtering, deterministic retry bodies, and formatted delivery through the real sender to a loopback HTTPS receiver. The exported examples match the formatter. JSON syntax and internal references in the schema artifact were checked; Python compilation and diff whitespace checks passed.
+
+Compared with compact raw fixture JSON, the host example decreased from **1,698 to 932 bytes (45.1%)**, and the Docker example from **2,991 to 678 bytes (77.3%)**. These are example-specific reductions from grouping and field selection, not a guaranteed fleet-wide storage saving. The sender does not downsample collection times. The Ubuntu/systemd/Telegraf runtime harness was updated for schema v1 but not rerun because the local Docker engine was unavailable; the CRM receiver is outside this repository and was not changed. Deploy a receiver accepting schema v1 before applying the new sender.
+
 The Docker monitoring addition was checked locally on **2026-09-26**: **90 automated tests passed**, including disabled defaults, saved toggle values, service-scoped socket groups, failed enable/activation recovery, enable/disable rollback, and Docker JSON delivery with string/boolean fields to a loopback HTTPS receiver. The real pseudo-terminal preview passed enabling, saving, reopening and disabling Docker monitoring. Rendering also passed at the minimum 76 × 24 terminal size. Shell syntax and diff whitespace checks passed.
 
 Live Docker collection and the Ubuntu systemd harness were **not rerun for this addition** because the local Docker engine was unavailable. Installer lifecycle tests use command fixtures; they do not establish live Docker API or systemd behavior. Before enabling on a server, run the collection check and confirm `docker_container_*` samples at the receiver. The results below describe the earlier host-only implementation.

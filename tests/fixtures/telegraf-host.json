@@ -1,0 +1,125 @@
+{
+  "metrics": [
+    {
+      "name": "cpu",
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "cpu": "cpu-total"
+      },
+      "fields": {
+        "usage_active": 23.0,
+        "usage_idle": 75.0,
+        "usage_user": 15.0,
+        "usage_system": 8.0,
+        "usage_iowait": 2.0,
+        "usage_steal": 0.0
+      },
+      "timestamp": 1790413200
+    },
+    {
+      "name": "mem",
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01"
+      },
+      "fields": {
+        "total": 8589934592,
+        "available": 5368709120,
+        "available_percent": 62.5,
+        "used": 3221225472,
+        "used_percent": 37.5,
+        "cached": 1073741824,
+        "buffered": 67108864
+      },
+      "timestamp": 1790413200
+    },
+    {
+      "name": "disk",
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "path": "/var/lib/docker",
+        "device": "vdb",
+        "fstype": "ext4",
+        "mode": "rw"
+      },
+      "fields": {
+        "total": 107374182400,
+        "free": 64424509440,
+        "used": 42949672960,
+        "used_percent": 40.0,
+        "inodes_total": 6553600,
+        "inodes_free": 5898240,
+        "inodes_used": 655360,
+        "inodes_used_percent": 10.0
+      },
+      "timestamp": 1790413200
+    },
+    {
+      "name": "net",
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "interface": "eth0"
+      },
+      "fields": {
+        "bytes_recv": 1234567890,
+        "bytes_sent": 987654321,
+        "packets_recv": 1000000,
+        "packets_sent": 800000,
+        "err_in": 0,
+        "err_out": 0,
+        "drop_in": 0,
+        "drop_out": 0
+      },
+      "timestamp": 1790413200
+    },
+    {
+      "name": "system",
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01"
+      },
+      "fields": {
+        "load1": 0.7,
+        "load5": 0.5,
+        "load15": 0.4,
+        "n_cpus": 2,
+        "uptime": 86400
+      },
+      "timestamp": 1790413200
+    },
+    {
+      "name": "swap",
+      "fields": {
+        "total": 2147483648,
+        "free": 1073741824,
+        "used": 1073741824,
+        "used_percent": 50
+      },
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01"
+      },
+      "timestamp": 1790413200
+    },
+    {
+      "name": "diskio",
+      "fields": {
+        "reads": 1000,
+        "writes": 2000,
+        "read_bytes": 12345678900,
+        "write_bytes": 23456789000,
+        "io_time": 12000,
+        "weighted_io_time": 24000
+      },
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "name": "vdb"
+      },
+      "timestamp": 1790413200
+    }
+  ]
+}

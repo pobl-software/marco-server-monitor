@@ -80,23 +80,23 @@ For installation from a copied checkout, run `sudo ./monitor.sh` from the projec
 
 ## Collected metrics
 
-Every metric includes a stable `server_id`, the OS hostname and its collection timestamp.
+Each request includes a stable `server_id` and hostname once. The versioned CRM format groups retained measurements into timestamped `samples`, with host sections and optional container rows.
 
 | Measurement | Data |
 | --- | --- |
-| `cpu` | Total CPU active, idle, user/system, I/O wait and steal percentages |
-| `mem` | Total, available and used RAM; availability/usage percentages, buffers and cache |
-| `swap` | Total, free and used swap; usage percentage |
-| `disk` | Capacity, usage and inode counts/percentages per filesystem |
-| `diskio` | Cumulative read/write bytes and operations, time counters and active requests per block device |
-| `net` | Cumulative received/sent bytes and packets, errors and drops per interface |
-| `system` | Load averages, CPU count and uptime in seconds |
+| `host.cpu` | CPU active, I/O wait and steal percentages |
+| `host.memory` | Total and available RAM in bytes |
+| `host.swap` | Total and used swap in bytes |
+| `host.disks[]` | Capacity, available/used bytes, usage percentage and inode total/available per mount |
+| `host.disk_io[]` | Read/write byte and operation counters, device busy time |
+| `host.network[]` | Receive/send bytes, errors and drops per interface |
+| `host.system` | Load averages, CPU count and uptime in seconds |
 
 Temporary filesystems and Docker overlays are excluded; other mounted filesystems, including separate database volumes, are eligible. Loop, RAM and floppy block devices are excluded. Network collection defaults to `eth*` and `en*`, excluding loopback and protocol-wide `all` metrics. Check unusual or bonded interface names with `ip -brief link`.
 
-Docker monitoring is **disabled by default**, including for existing host-only installations. In **Configure**, select **Docker monitoring**, press **Space** to enable or disable it, then choose **Save and start monitor**. When enabled, `docker` and `docker_container_*` measurements are sent alongside host metrics, with container identity and selected Compose project/service labels. The [Docker setup guide](docs/installation.md#docker-container-monitoring) describes socket access; the [CRM contract](docs/crm-integration.md#docker-container-metrics) describes fields and identity.
+Docker monitoring is **disabled by default**, including for existing host-only installations. In **Configure**, select **Docker monitoring**, press **Space** to enable or disable it, then choose **Save and start monitor**. When enabled, samples include `host.docker` engine counts and `containers[]` rows combining per-container resource/status/health data and selected Compose labels. The [Docker setup guide](docs/installation.md#docker-container-monitoring) describes socket access; the [CRM contract](docs/crm-integration.md#docker-container-fields) describes fields and identity.
 
-Disk and network counters are cumulative. See the [integration guide](docs/crm-integration.md#units-and-interpretation) for units, rate calculations and reboot handling. Resource usage measurements and their limits are recorded in [verification results](docs/verification.md#recorded-results).
+Disk and network counters are cumulative. See the [integration guide](docs/crm-integration.md#rates-derived-values-and-counter-resets) for rate calculations and reboot handling. Resource usage measurements and their limits are recorded in [verification results](docs/verification.md#recorded-results).
 
 ## Configuration
 
@@ -105,10 +105,10 @@ Disk and network counters are cumulative. See the [integration guide](docs/crm-i
 | Collection interval | `10s` |
 | Reporting interval | `60s` |
 | Network interfaces | `eth*`, `en*` |
-| Maximum HTTP batch | 1,000 metrics |
+| Maximum input batch | 1,000 Telegraf measurements |
 | In-memory buffer | 10,000 metrics |
 
-A metric is one measurement for one tagged resource at one timestamp, rather than an entire server snapshot. Telegraf may flush earlier when a batch fills and send multiple requests per flush. Buffered metrics are lost on restart; a full buffer overwrites the oldest samples.
+A buffered metric is one internal Telegraf measurement for one resource at one timestamp. The sender groups these into CRM samples; a request may contain multiple timestamps or partial samples when Telegraf splits a batch. Buffered measurements are lost on restart; a full buffer overwrites the oldest ones.
 
 Use **Configure** in the control panel to change the endpoint, server ID, token, intervals or interface filters. Leave the token blank to keep the existing one. Configuration fields are pre-filled with the installed settings.
 
@@ -159,9 +159,9 @@ See [operation and troubleshooting](docs/operations.md) for update behavior, rol
 
 The monitor sends JSON over HTTPS with `Content-Type: application/json` and `Authorization: Bearer <token>`. The receiving endpoint must accept POST directly, without redirects, and validate that the token belongs to the supplied server ID.
 
-Telegraf passes each JSON batch to a bundled Python HTTPS sender. It verifies the certificate and hostname, rejects all redirects (including HTTPS-to-HTTP), and returns failures to Telegraf for buffered retry. Tokens stay out of command arguments and receiver response bodies are never logged. Each batch starts a short-lived Python process; no local listener is opened.
+Telegraf passes each internal JSON batch to a bundled Python sender. The sender converts it to **CRM schema v1**, removes redundant fields/tags and groups values by collection time. It verifies the certificate and hostname, rejects all redirects (including HTTPS-to-HTTP), and returns failures to Telegraf for buffered retry. Tokens stay out of command arguments and receiver response bodies are never logged. Each batch starts a short-lived Python process; no local listener is opened.
 
-Receivers must persist the complete batch before acknowledging it. Retries can create duplicates, so ingestion should be idempotent using the server ID, measurement name, resource tags and collection timestamp. Freshness should be tracked by collection time to prevent old buffered samples from making a server appear healthy.
+Receivers must persist the complete request before acknowledging it. Samples can be partial: merge fields by server ID, collection time, section and resource identity rather than replacing a stored sample. Retry ingestion must be idempotent, and freshness must follow collection time. Update the receiver for schema v1 before applying this sender; pre-v1 rollback releases still send the legacy format. See the [rollout guide](docs/crm-integration.md#version-and-rollout).
 
 The [full ingestion contract](docs/crm-integration.md) and [example payload](examples/payload.json) define the requirements for receiver implementations. CRM integration and storage are handled separately from the monitoring agent.
 

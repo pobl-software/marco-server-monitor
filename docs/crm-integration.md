@@ -1,81 +1,99 @@
 # CRM ingestion contract
 
-Create one HTTPS POST endpoint at the URL supplied during installation. No InfluxDB protocol is involved. The caller sends `Content-Type: application/json` and `Authorization: Bearer <per-server token>`; do not depend on cookies, sessions, redirects or AWS identity.
+Marco sends a compact, versioned JSON payload over HTTPS. The sender converts Telegraf measurements into the CRM format before delivery; raw Telegraf measurement names, `fields` and `tags` are internal and are not part of this API.
 
-The bundled sender verifies the TLS certificate and hostname and makes exactly one POST per batch. All redirects are rejected, including redirects to another HTTPS endpoint or the same host over HTTP. Return a direct 2xx acknowledgement; a redirected login page must not count as successful delivery. Response bodies are neither read nor logged.
+See the [host payload](../examples/payload.json), [Docker payload](../examples/docker-payload.json) and [JSON Schema](payload.schema.json). Examples are illustrative. Actual requests contain all retained collection times in the batch, and may contain partial samples.
 
-## Authenticate and save
+## Version and rollout
 
-1. Look up the bearer token using your normal secure credential handling. Associate it with one registered `server_id` and reject metrics claiming another ID. Do not trust `server_id` alone.
-2. Accept a JSON object containing a nonempty `metrics` array. Each entry has `name`, `fields`, `tags` and `timestamp`; allow additional fields and measurement tags to avoid breaking on Telegraf upgrades. Fields may contain numbers, strings and booleans (Docker identity, health and lifecycle fields are not all numeric). Numeric counters can exceed 32-bit integers; preserve precision, including 64-bit byte counters.
-3. Validate and persist the entire batch before returning an empty `204` or another successful 2xx response. For an endpoint that queues work, only acknowledge after durable enqueueing. Avoid partial-save ambiguity. Batches contain up to 1,000 entries with this configuration; set request limits accordingly, e.g. at least 2 MiB.
-4. Deduplicate by `(server_id, name, canonical sorted tags, timestamp)`. Include the resource tags so different interfaces/filesystems at the same timestamp remain separate. Retried writes should be idempotent. If the same key has different fields, use an upsert policy consistently.
+The envelope contains `schema_version: 1`, `server_id`, `hostname` and a nonempty `samples` array. The server ID and hostname appear once per request. Each sample contains `collected_at` (Unix seconds), a `host` object and, when container data is present, a `containers` array. Host sections and resource fields are omitted when not collected. Container-only samples have `host: {}`. Empty resource arrays and invented zero values are not sent.
 
-Examples of resource tags are `cpu=cpu-total`, `path`, `device`, `fstype`, `mode`, `name` (block device), and `interface`. Telegraf includes OS `host` plus the configured stable `server_id`. Treat measurement/resource names as data, not identifiers to interpolate into SQL.
+This format replaces the previous `{"metrics": [...]}` contract. Update the CRM receiver to support schema v1 **before applying the new sender to servers**. This repository contains the monitor, not the CRM implementation. During rollout, accept both the legacy format and schema v1 if older agents remain active. Deploying updated source alone does not replace the running sender: use **Configure → Save and start monitor**, or reinstall with the complete desired options. Each installed release retains its sender, so rolling back to a pre-v1 release restores the legacy format as well as its settings and token. Older buffered records processed by the new sender are converted using the same allowlist.
 
-See [representative payload](../examples/payload.json). Values are illustrative; a real minute-long batch usually contains several samples per resource. Metrics are timestamped at **collection**, not arrival. A batch is not an atomic whole-server snapshot, and can contain old and new samples together after an outage.
+Schema v1 deliberately selects dashboard and health fields. Unrecognised measurements and unselected diagnostic fields are discarded; a batch containing only discarded measurements is acknowledged locally without an HTTP request. Selected values must have valid types, finite nonnegative numbers, a valid identity and a nonnegative integer collection time. Invalid JSON, mixed server/hostname batches or conflicting values for the same field/resource/time cause a nonzero sender exit without exposing input values in logs. A duplicate record with identical values is harmless. New data that changes this contract should use a new schema version and a coordinated receiver update.
 
-## Units and interpretation
+## Authentication and acknowledgement
 
-| Name | Fields | Units / meaning |
+Create one HTTPS POST endpoint at the configured URL. Requests use `Content-Type: application/json` and `Authorization: Bearer <per-server token>`. Do not depend on cookies, redirects, sessions or AWS identity. The sender verifies TLS certificate and hostname, rejects every redirect, and makes one POST per nonempty formatted batch. Response bodies are neither read nor logged.
+
+1. Associate the bearer token with one registered server and verify the top-level `server_id`. Do not trust the claimed ID alone.
+2. Validate `schema_version`, the envelope and all supplied sample/resource fields. Preserve 64-bit integer precision; bytes and counters are integers, while percentages and load values can be fractional. Container health/state/name values are strings and `oom_killed` is a boolean. Treat names as data, never SQL identifiers.
+3. Validate and persist the entire request before returning an empty `204` or another direct 2xx response. If queueing, acknowledge only after durable enqueueing. Avoid partial-save ambiguity.
+4. Merge and deduplicate individual fields as described below. Network timeouts and buffered retries can deliver the same values more than once.
+
+Requests are compact JSON without compression. The sender caps both its raw input and formatted output at 16 MiB. Telegraf batches up to 1,000 input measurements; this is **not** a limit of 1,000 complete snapshots or containers. Configure receiver body limits for the resource count on your servers.
+
+## Host fields
+
+All numbers below are nonnegative. Missing sections or fields mean unknown/unavailable, not zero.
+
+| Section | Fields | Units / meaning |
 | --- | --- | --- |
-| `cpu` | `usage_active`, `usage_idle`, `usage_user`, `usage_system`, `usage_iowait`, `usage_steal` | Percent across all logical CPUs, 0–100 total CPU scale |
-| `mem` | `total`, `available`, `used`, `cached`, `buffered` | Bytes |
-| `mem` | `available_percent`, `used_percent` | Telegraf's memory percentages; prefer available RAM for pressure |
-| `swap` | `total`, `free`, `used`; `used_percent` | Bytes; percentage |
-| `disk` | `total`, `free`, `used`; `used_percent` | Bytes; percentage per filesystem, accounting for filesystem reservations |
-| `disk` | `inodes_total`, `inodes_free`, `inodes_used`; `inodes_used_percent` | Counts; percentage |
-| `diskio` | `reads`, `writes`, `read_bytes`, `write_bytes` | Cumulative completed operations and bytes per device |
-| `diskio` | `read_time`, `write_time`, `io_time`, `weighted_io_time` | Cumulative milliseconds; concurrent operations can cause some time rates to exceed wall time |
-| `diskio` | `iops_in_progress` | Current active requests, a gauge rather than a counter |
-| `net` | `bytes_recv`, `bytes_sent`, `packets_recv`, `packets_sent`, `err_in`, `err_out`, `drop_in`, `drop_out` | Cumulative bytes, packets or counts per interface |
-| `system` | `load1`, `load5`, `load15`, `n_cpus`, `uptime` | Load averages, logical CPU count, uptime seconds |
+| `host.cpu` | `usage_percent`, `iowait_percent`, `steal_percent` | Percent across all logical CPUs, on a 0–100 host scale; active usage excludes idle and I/O wait |
+| `host.memory` | `total_bytes`, `available_bytes` | Bytes; available memory accounts for reclaimable cache |
+| `host.swap` | `total_bytes`, `used_bytes` | Bytes |
+| `host.system` | `cpu_count`, `uptime_seconds`, `load_1m`, `load_5m`, `load_15m` | Logical CPU count, uptime seconds and load averages |
+| `host.disks[]` | `mount`; optional `device`, `filesystem`; `total_bytes`, `available_bytes`, `used_bytes`, `usage_percent`, `inodes_total`, `inodes_available` | Per mounted filesystem; identify each row by `mount` |
+| `host.disk_io[]` | `device`, `read_bytes`, `written_bytes`, `read_operations`, `write_operations`, `busy_time_ms` | Cumulative device counters; busy time is milliseconds |
+| `host.network[]` | `interface`, `received_bytes`, `sent_bytes`, `receive_errors`, `send_errors`, `receive_drops`, `send_drops` | Cumulative per-interface byte/error/drop counters |
+| `host.docker` | `total_containers`, `running_containers`, `stopped_containers`, `paused_containers` | Engine counts, only when Docker collection supplies them |
 
-These counters generally accumulate since boot or device/interface creation. Compute disk/network rates separately for each resource; do not sum parent disk and partition counters or physical and bonded interfaces, which can double-count activity.
+Disk `usage_percent` is retained because filesystem reservations affect available space: `total_bytes - available_bytes` is not necessarily `used_bytes`. Use the reported percentage for disk exhaustion warnings. Inode exhaustion is separate from byte capacity.
 
-For a counter `C` at two sample timestamps `t` in seconds:
+The payload removes idle/user/system CPU splits, duplicate memory/swap percentages, cache/buffer details, packet counts, detailed I/O timing and internal resource tags. Rates are not calculated by the sender, and samples are not downsampled to the latest value. Every retained collection time remains available for graphs.
+
+## Docker container fields
+
+Docker collection is optional and **disabled by default**. Each `containers[]` row has `id`, `name` and `state`, followed only by the available selected fields. The ID is the 12-character hexadecimal Docker source ID; use `(server_id, id)` for grouping, not the reusable container name. The same ID is available even in health-only partial batches, so resource and lifecycle measurements can be merged consistently. IDs are shortened Docker identifiers rather than globally unique identifiers; scope them to the server. Selected Compose labels appear as `compose_project` and `compose_service` when available and can group replacement instances of a service.
+
+| Fields | Units / meaning |
+| --- | --- |
+| `cpu_percent` | Docker CPU scale: 100% is one core, so values may exceed 100%; differs from the host CPU scale |
+| `memory_used_bytes`, `memory_limit_bytes` | Reported cgroup memory usage and limit, in bytes; neither is host available RAM |
+| `network_received_bytes`, `network_sent_bytes` | Cumulative totals across container networks |
+| `disk_read_bytes`, `disk_written_bytes` | Cumulative container block I/O bytes, where supported |
+| `health`, `health_failures` | Docker health string and consecutive failure count; only for configured health checks |
+| `oom_killed`, `exit_code` | Boolean OOM flag and integer exit code |
+| `started_at`, `finished_at`, `uptime_seconds` | Unix-second lifecycle timestamps and whole-second uptime; `0` can mean no recorded start/finish |
+| `compose_project`, `compose_service` | Selected Compose project/service labels |
+
+The sender combines CPU, memory, network, block I/O, status and health measurements with the **same container ID and original collection second** into one row. It selects CPU/network/block I/O totals and excludes per-core/per-device duplicates. State and resource support determine which fields are present. Removed containers stop producing samples; an absent row does not prove removal or zero usage. Engine counts can include containers without resource data and must not be inferred from the size of a partial `containers` array.
+
+Detailed cgroup counters, duplicate full container IDs, PID, CPU nanosecond counters, engine host/version, image metadata and unrelated labels are omitted. Logs and environment values are not collected or sent. Container resource metrics and Docker health checks do not establish application health unless the configured health check actually probes it. Host and container usage overlap and must not be added together.
+
+## Partial samples, deduplication and retries
+
+Collection timestamps belong to measurements, not HTTP requests. A flush can contain multiple collection times, old buffered samples and only some resources for a given time. Samples are grouped by the original Unix second, ordered chronologically, and resource arrays are ordered by their identifier. The format is deterministic for reordered input and repeated identical records, but **a sample is not an atomic server snapshot**.
+
+Telegraf can split one collection across requests or regroup records during retry. Merge supplied fields for the same `(server_id, collected_at)` and resource identity; do not replace an existing sample or array with a partial fragment. For host scalar sections, identify values by section and field. For disks use `mount`; for disk I/O use `device`; for networks use `interface`; for containers use `id`. A suitable storage uniqueness key is `(server_id, collected_at, section, resource_id, field)` or an equivalent table-specific key. Upsert each supplied field idempotently. Preserve resource metadata once in resource tables if desired; receiving metadata does not require duplicating it in every history row.
+
+A zero is a real observation, so preserve it and booleans such as `oom_killed: false`. Absence must not erase previously received fields at that same collection time. If overlapping fragments disagree, use an explicit receiver conflict policy rather than treating arrival order as collection order. A hostname is display metadata and must not change the server's registered identity.
+
+## Rates, derived values and counter resets
+
+For a cumulative counter `C` at collection times `t`, measured in seconds:
 
 ```text
 bytes_per_second = (C_new - C_old) / (t_new - t_old)
 Mbps = bytes_per_second * 8 / 1_000_000
 IOPS = (operations_new - operations_old) / (t_new - t_old)
-RAM pressure % = 100 * (1 - available / total)
+RAM pressure % = 100 * (1 - available_bytes / total_bytes)
+swap usage % = 100 * used_bytes / total_bytes
+inode usage % = 100 * (1 - inodes_available / inodes_total)
 ```
 
-Sort by collection time, not arrival order, and deduplicate before deriving rates. No rate is available for the first sample, nonpositive elapsed time, or a counter reset. Discard cross-reboot rate calculations: estimate the boot time from `system.timestamp - system.uptime`, allowing small timing jitter. A decreased uptime or a substantial boot-time shift indicates a new boot. Also start a new baseline if a device/interface counter decreases. Missing samples are unknown, not zero; a rate over a gap is an average over that gap. Do not use reported NIC speed as a cloud provider's guaranteed bandwidth ceiling.
+Guard zero denominators. Sort by collection time, merge fragments and deduplicate before deriving rates. Do not calculate a rate from the first sample, nonpositive elapsed time, a decreased counter or a changed resource identity. A rate over a missing-data gap is an average over the gap.
 
-RAM pressure uses available memory to account for reclaimable cache; `total - free` exaggerates usage. Load is not CPU percentage. Linux CPU active usage excludes idle and I/O wait; display I/O wait separately. Disk byte/inode percentages provide complementary exhaustion warnings.
+For hosts, estimate boot time from `collected_at - host.system.uptime_seconds`, allowing timing jitter. A decreased uptime or substantial boot-time change starts a new counter baseline. Containers can restart without changing ID: a changed nonzero `started_at`, decreased uptime or decreased counter also starts a new baseline. Recreated containers receive a new ID. Missing lifecycle data cannot prove continuity across an outage.
 
-## Docker container metrics
+Do not sum parent disk/partition counters or physical/bonded interfaces, which can double-count activity. Load averages are not CPU percentages, and reported NIC speed is not a cloud provider's guaranteed bandwidth ceiling.
 
-Docker monitoring is optional and disabled by default. When enabled, the existing JSON batches contain the following additional measurements. The sender, HTTPS endpoint and bearer-token authentication are unchanged. A receiver that allows only host measurement names or numeric fields must be extended before enabling this setting.
+## Freshness and delivery limits
 
-| Name | Representative fields | Meaning |
-| --- | --- | --- |
-| `docker` | `n_containers`, `n_containers_running`, `n_containers_stopped`, `n_containers_paused` | Engine-wide counts |
-| `docker_container_cpu` | `usage_percent`, `usage_total`, throttling counters | Docker CPU percentage; accumulated CPU time in nanoseconds |
-| `docker_container_mem` | `usage`, `limit`, `usage_percent` | Bytes and percentage; available fields depend on Docker/cgroup version |
-| `docker_container_net` | `rx_bytes`, `tx_bytes`, packet/error/drop counters | Cumulative totals across container networks |
-| `docker_container_blkio` | `io_service_bytes_recursive_read`, `io_service_bytes_recursive_write` | Cumulative read/write bytes, where supported |
-| `docker_container_status` | `container_id`, `oomkilled`, `exitcode`, `pid`, `started_at`, `finished_at`, `uptime_ns` | Full container ID string, OOM boolean, lifecycle counts/times; start/finish Unix seconds and uptime nanoseconds |
-| `docker_container_health` | `health_status`, `failing_streak` | Health string and failure count; present only with a configured Docker health check |
+Store both receiver arrival time and `collected_at`. Update `last_fresh_sample_at` with the maximum credible collection time, never just the request arrival time. Old buffered samples must not clear an unavailable-monitor flag. Track host and container freshness separately; container-only data does not prove current host metrics are available.
 
-All measurements retain `server_id` and `host`. Container measurements add tags such as `container_name`, `container_image`, `container_version`, `container_status` and `source` (the first 12 characters of the container ID), plus selected Compose project/service labels. The full `container_id` is a string field on resource/status measurements, not necessarily a tag. Use `(server_id, source)` for container instance grouping and keep the existing deduplication key with all tags. Container names can be reused after recreation; start new counter baselines when the container identity changes or counters decrease. Selected Compose labels can group successive instances of one service.
+With the default 60-second reporting interval, flag monitoring unavailable when fresh telemetry is over three minutes old. Increase this threshold to at least three reporting intervals when reporting is slower. Missing telemetry cannot distinguish an agent, network or server failure. Keep the CRM on separate infrastructure for useful outage detection.
 
-Docker CPU percentage follows Docker's scale: 100% represents one CPU core, so a container using multiple cores can exceed 100%. It differs from the host `cpu` percentage, which is normalised across all logical CPUs. Container memory is a cgroup measurement and should not be interpreted as host available RAM. Network and block I/O rates use collection timestamps and counter deltas as above. Resource fields may be absent for stopped containers or unsupported cgroup counters; missing values are unknown, not zero. Removed containers stop producing measurements. Host and container totals overlap and should not be added together.
+Keep server and receiver clocks synchronised. Reject or quarantine implausibly future collection times (for example more than 60 seconds ahead); a future timestamp must not keep a server healthy indefinitely.
 
-The default includes running, paused, restarting, exited, dead and created containers. Container logs, environment values, image/volume storage-size queries and Swarm service metrics are not collected. The [Docker payload example](../examples/docker-payload.json) shows mixed numeric/string/boolean fields; the [Telegraf plugin documentation](https://github.com/influxdata/telegraf/blob/master/plugins/inputs/docker/README.md) describes the full version-dependent field set.
-
-## Availability and time
-
-Store both receiver arrival time and collection time. For each server, update `last_fresh_sample_at` to the maximum accepted **collection timestamp**, never just `now()` when a batch arrives. Flag monitoring unavailable when the latest credible sample is over three minutes old. An old buffered batch must not clear that flag.
-
-Ensure both servers and receiver have synchronised clocks. Future timestamps should not keep a server healthy indefinitely: reject/quarantine implausibly future samples (for example over 60 seconds ahead), and track clock problems separately. Loss of telemetry means monitoring unavailable; it does not distinguish an agent failure, network outage or server outage. Keep the CRM on separate infrastructure for useful outage detection.
-
-The three-minute default assumes 60-second reporting. If you configure a longer reporting interval, increase the CRM's missing-sample threshold to at least three reporting intervals.
-
-## Delivery limits
-
-Telegraf retries failed HTTP writes at subsequent flushes; even permanent endpoint/auth errors can continue retrying. Use non-2xx statuses for rejected/unsaved batches and return a direct success for accepted batches. Do not rely on `Retry-After` or an application-specific response body being interpreted. Request timeouts may produce duplicate batches. The 10,000-metric buffer drops the oldest pending metrics when full and is lost on restart; the duration it covers depends on resource count. This project sends uncompressed JSON and opens no agent listener.
-
-Telegraf's command output passes each JSON batch through stdin to the bundled HTTPS sender. A nonzero sender exit preserves Telegraf's retry behavior. The HTTPS request timeout is 10 seconds; Telegraf terminates a sender exceeding 12 seconds. Batches larger than 16 MiB are rejected locally; configure receiver body limits for the metrics your servers produce. Each send starts a short-lived Python process under the collector's user.
+Telegraf retries failed writes on subsequent flushes. Non-2xx responses and formatting errors return a nonzero sender exit, preserving the buffer/retry behavior. The in-memory 10,000-measurement buffer drops the oldest pending records when full and is lost on restart. This is best-effort telemetry, not durable audit storage. The HTTPS timeout is 10 seconds and Telegraf terminates a sender exceeding 12 seconds. Each request starts a short-lived Python sender; no local agent listener is opened.

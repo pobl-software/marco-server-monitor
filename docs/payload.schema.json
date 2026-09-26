@@ -1,0 +1,418 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Marco CRM payload v1",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "server_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$"
+    },
+    "hostname": {
+      "type": "string",
+      "minLength": 1
+    },
+    "samples": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/sample"
+      },
+      "minItems": 1
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "server_id",
+    "hostname",
+    "samples"
+  ],
+  "$defs": {
+    "cpu": {
+      "type": "object",
+      "properties": {
+        "usage_percent": {
+          "type": "number",
+          "minimum": 0
+        },
+        "iowait_percent": {
+          "type": "number",
+          "minimum": 0
+        },
+        "steal_percent": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "memory": {
+      "type": "object",
+      "properties": {
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "available_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "swap": {
+      "type": "object",
+      "properties": {
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "used_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "system": {
+      "type": "object",
+      "properties": {
+        "cpu_count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uptime_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "load_1m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "load_5m": {
+          "type": "number",
+          "minimum": 0
+        },
+        "load_15m": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "docker": {
+      "type": "object",
+      "properties": {
+        "total_containers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "running_containers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "stopped_containers": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "paused_containers": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "disk": {
+      "type": "object",
+      "properties": {
+        "total_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "available_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "used_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inodes_total": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inodes_available": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "mount": {
+          "type": "string",
+          "minLength": 1
+        },
+        "device": {
+          "type": "string",
+          "minLength": 1
+        },
+        "filesystem": {
+          "type": "string",
+          "minLength": 1
+        },
+        "usage_percent": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "mount"
+      ],
+      "minProperties": 2
+    },
+    "disk_io": {
+      "type": "object",
+      "properties": {
+        "read_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "written_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "read_operations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "write_operations": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "busy_time_ms": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "device": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "device"
+      ],
+      "minProperties": 2
+    },
+    "network": {
+      "type": "object",
+      "properties": {
+        "received_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sent_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receive_errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "send_errors": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "receive_drops": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "send_drops": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "interface": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "interface"
+      ],
+      "minProperties": 2
+    },
+    "container": {
+      "type": "object",
+      "properties": {
+        "memory_used_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "memory_limit_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "network_received_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "network_sent_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disk_read_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "disk_written_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "health_failures": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "exit_code": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "started_at": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "finished_at": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "uptime_seconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{12}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "health": {
+          "type": "string",
+          "minLength": 1
+        },
+        "cpu_percent": {
+          "type": "number",
+          "minimum": 0
+        },
+        "oom_killed": {
+          "type": "boolean"
+        },
+        "compose_project": {
+          "type": "string",
+          "minLength": 1
+        },
+        "compose_service": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "state"
+      ],
+      "minProperties": 4
+    },
+    "host": {
+      "type": "object",
+      "properties": {
+        "cpu": {
+          "$ref": "#/$defs/cpu"
+        },
+        "memory": {
+          "$ref": "#/$defs/memory"
+        },
+        "swap": {
+          "$ref": "#/$defs/swap"
+        },
+        "system": {
+          "$ref": "#/$defs/system"
+        },
+        "docker": {
+          "$ref": "#/$defs/docker"
+        },
+        "disks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/disk"
+          },
+          "minItems": 1
+        },
+        "disk_io": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/disk_io"
+          },
+          "minItems": 1
+        },
+        "network": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/network"
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "sample": {
+      "type": "object",
+      "properties": {
+        "collected_at": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "host": {
+          "$ref": "#/$defs/host"
+        },
+        "containers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/container"
+          },
+          "minItems": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "collected_at",
+        "host"
+      ],
+      "anyOf": [
+        {
+          "properties": {
+            "host": {
+              "minProperties": 1
+            }
+          }
+        },
+        {
+          "required": [
+            "containers"
+          ]
+        }
+      ]
+    }
+  }
+}

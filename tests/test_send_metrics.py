@@ -1,5 +1,6 @@
 """Exercise the real sender against loopback TLS and plaintext redirect traps."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
 import os
 from pathlib import Path
 import ssl
@@ -11,7 +12,7 @@ import unittest
 
 SENDER = Path(__file__).resolve().parents[1] / 'scripts/send_metrics.py'
 TOKEN = 'sender-test-token'
-PAYLOAD = b'{"metrics":[{"name":"cpu","fields":{"usage_active":1}}]}'
+PAYLOAD = b'{"metrics":[{"name":"cpu","fields":{"usage_active":1},"tags":{"host":"ubuntu-01","server_id":"production-01","cpu":"cpu-total"},"timestamp":1790413200}]}'
 
 
 class SenderTests(unittest.TestCase):
@@ -85,14 +86,35 @@ class SenderTests(unittest.TestCase):
         self.assertNotIn(b'private=value', result.stdout + result.stderr)
         return result
 
-    def test_verified_https_preserves_body_headers_and_query(self):
+    def test_verified_https_sends_versioned_body_preserving_headers_and_query(self):
         self.assertEqual(self.send().returncode, 0)
-        self.assertEqual(self.requests, [('/metrics?private=value', 'Bearer ' + TOKEN, PAYLOAD)])
+        self.assertEqual(self.requests[0][:2], ('/metrics?private=value', 'Bearer ' + TOKEN))
+        self.assertEqual(json.loads(self.requests[0][2]), {
+            'schema_version': 1, 'server_id': 'production-01', 'hostname': 'ubuntu-01',
+            'samples': [{'collected_at': 1790413200, 'host': {'cpu': {'usage_percent': 1}}}]
+        })
 
-    def test_docker_identity_health_and_boolean_fields_reach_receiver_unchanged(self):
-        payload = (SENDER.parents[1] / 'examples/docker-payload.json').read_bytes()
+    def test_docker_identity_health_and_boolean_fields_reach_receiver_in_one_container(self):
+        payload = (SENDER.parents[1] / 'tests/fixtures/telegraf-docker.json').read_bytes()
         self.assertEqual(self.send(payload=payload).returncode, 0)
-        self.assertEqual(self.requests, [('/metrics?private=value', 'Bearer ' + TOKEN, payload)])
+        body = json.loads(self.requests[0][2])
+        self.assertEqual(len(body['samples'][0]['containers']), 1)
+        container = body['samples'][0]['containers'][0]
+        self.assertEqual(container['id'], '0123456789ab')
+        self.assertEqual(container['health'], 'healthy')
+        self.assertIs(container['oom_killed'], False)
+        self.assertNotIn('container_id', container)
+
+    def test_malformed_json_is_rejected_without_sending_or_echoing_input(self):
+        self.assertNotEqual(self.send(payload=b'{"secret":"' + TOKEN.encode()).returncode, 0)
+        self.assertEqual(self.requests, [])
+
+    def test_repeated_delivery_produces_identical_retry_body(self):
+        type(self).status = 503
+        self.assertNotEqual(self.send().returncode, 0)
+        type(self).status = 204
+        self.assertEqual(self.send().returncode, 0)
+        self.assertEqual(self.requests[0][2], self.requests[1][2])
 
     def test_every_redirect_is_rejected_without_contacting_its_target(self):
         for scheme, port in (('http', self.http.server_port), ('https', self.https.server_port)):

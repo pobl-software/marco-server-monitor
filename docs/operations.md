@@ -69,6 +69,8 @@ Rollback swaps the current and previous configurations. It does not downgrade th
 
 Each release includes its own HTTPS sender, so rollback preserves the configuration and sender together. Legacy configurations using Telegraf's redirect-following HTTP output are refused by Check/Rollback. Open **Configure** and **Save and start** after updating source to upgrade an existing installation. Once two secure configurations have been saved, normal rollback is available again.
 
+The current sender uses CRM schema v1 instead of the legacy raw `metrics` array. Update the receiver first, then apply the source update through **Configure** and **Save and start**. Rolling back to a pre-v1 release also restores its legacy payload format. See the [rollout and partial-sample contract](crm-integration.md).
+
 Existing unrelated installation directories/units are rejected. Installation is protected against concurrent runs. No automatic Telegraf upgrades are configured by this project; normal host APT policy still applies. Test package upgrades before applying them across your servers. Configuration rollback is for ordinary startup failures; abrupt power loss can require manual recovery using the retained release/unit files.
 
 ## Outages and troubleshooting
@@ -82,7 +84,7 @@ Unsent metrics are retried at subsequent flushes. The default memory buffer over
 - **Missing network data:** inspect `ip -brief link` and reinstall with matching interface names/globs.
 - **No CPU percentages in an initial sample:** counters need a subsequent collection; normal continuous collection supplies these.
 - **Missing filesystem:** confirm it is mounted and accessible to the Telegraf user; check its type against the exclusions.
-- **Missing Docker metrics:** check the saved Docker setting, Docker daemon state and `/var/run/docker.sock`. Start Docker before enabling; the standard root-owned socket must allow a dedicated non-root group read/write access. A changed socket group requires **Configure** and **Save and start**. A Docker-enabled monitor requires Docker available at startup; disable Docker collection if you need host-only operation without Docker. Stopped containers may have lifecycle status without resource data. Confirm the receiver accepts the new measurement names, strings and booleans.
+- **Missing Docker metrics:** check the saved Docker setting, Docker daemon state and `/var/run/docker.sock`. Start Docker before enabling; the standard root-owned socket must allow a dedicated non-root group read/write access. A changed socket group requires **Configure** and **Save and start**. A Docker-enabled monitor requires Docker available at startup; disable Docker collection if you need host-only operation without Docker. Stopped containers may have lifecycle status without resource data. Confirm the receiver accepts schema v1 container rows with strings and booleans.
 - **Installer errors:** command output is withheld because expanded config errors can contain secrets. The HTTPS sender reports only status codes or generic connection errors and never logs receiver response bodies. `--check` and `journalctl` help diagnose issues. Do not enable debug output or share credential files.
 
 Installation uses the currently documented InfluxData signing-key fingerprint. If the upstream key rotates, installation fails closed; verify the new fingerprint against the official documentation before updating the installer. A failed first installation can leave the dependency package/repository installed even though no monitor service was activated.

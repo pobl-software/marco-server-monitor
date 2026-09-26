@@ -18,8 +18,20 @@ SPEC.loader.exec_module(installer)
 TOKEN = "runtime-test-token"
 
 
-def metric_key(metric):
-    return (metric["name"], tuple(sorted(metric["tags"].items())), metric["timestamp"])
+def sample_points(payload):
+    """Compare individual values, since retries may regroup partial samples."""
+    points = set()
+    for sample in payload["samples"]:
+        for section, values in sample["host"].items():
+            rows = values if isinstance(values, list) else [values]
+            for row in rows:
+                resource = row.get("mount", row.get("interface", row.get("device", "")))
+                for field, value in row.items():
+                    points.add((payload["server_id"], sample["collected_at"], section, resource, field, json.dumps(value)))
+        for row in sample.get("containers", []):
+            for field, value in row.items():
+                points.add((payload["server_id"], sample["collected_at"], "container", row["id"], field, json.dumps(value)))
+    return points
 
 
 def process_usage(pid):
@@ -52,13 +64,14 @@ def main():
                 assert self.headers.get("Authorization") == f"Bearer {TOKEN}", "bearer authentication missing"
                 assert self.headers.get("Content-Type") == "application/json", "unexpected content type"
                 payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                assert isinstance(payload.get("metrics"), list) and payload["metrics"], "invalid batch"
-                for metric in payload["metrics"]:
-                    assert metric["tags"]["server_id"] == "runtime-test", "missing server identity"
-                    assert metric["tags"].get("host"), "missing hostname"
-                    assert isinstance(metric["timestamp"], int), "timestamp is not Unix seconds"
-                    assert abs(time.time() - metric["timestamp"]) < 120, "unexpected timestamp units"
-                    assert metric["fields"] and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in metric["fields"].values()), "non-numeric fields"
+                assert payload["schema_version"] == 1, "unexpected schema version"
+                assert payload["server_id"] == "runtime-test", "missing server identity"
+                assert payload.get("hostname"), "missing hostname"
+                assert isinstance(payload.get("samples"), list) and payload["samples"], "invalid batch"
+                for sample in payload["samples"]:
+                    assert type(sample["collected_at"]) is int, "timestamp is not Unix seconds"
+                    assert abs(time.time() - sample["collected_at"]) < 120, "unexpected timestamp units"
+                    assert sample["host"], "missing host measurements"
                 code = 503 if len(state["requests"]) < 2 else 204
                 state["requests"].append({"code": code, "payload": payload})
                 self.send_response(code)
@@ -128,22 +141,23 @@ def main():
                 raise AssertionError("; ".join(state["errors"]))
             assert len(state["requests"]) >= 4, "Insufficient batches observed"
             assert [r["code"] for r in state["requests"][:2]] == [503, 503], "Outage was not simulated"
-            failed = {metric_key(m) for r in state["requests"][:2] for m in r["payload"]["metrics"]}
-            accepted_metrics = [m for r in state["requests"] if r["code"] == 204 for m in r["payload"]["metrics"]]
-            accepted = {metric_key(m) for m in accepted_metrics}
+            failed = set().union(*(sample_points(r["payload"]) for r in state["requests"][:2]))
+            accepted_requests = [r for r in state["requests"] if r["code"] == 204]
+            accepted_samples = [s for r in accepted_requests for s in r["payload"]["samples"]]
+            accepted = set().union(*(sample_points(r["payload"]) for r in accepted_requests))
             assert failed <= accepted, "Failed batches were not retried after recovery"
-            names = {m["name"] for m in accepted_metrics}
-            assert {"cpu", "mem", "swap", "net", "system"} <= names, f"Missing input measurements: {names}"
-            for metric in accepted_metrics:
-                if metric["name"] == "cpu":
-                    assert metric["tags"]["cpu"] == "cpu-total", "Per-core metrics were collected"
-                    assert "usage_active" in metric["fields"], "CPU percentage missing"
-                if metric["name"] == "net":
-                    assert metric["tags"]["interface"].startswith(("eth", "en")), "Virtual/loopback interface leaked"
-                if metric["name"] == "disk":
-                    assert metric["tags"]["fstype"] not in {"tmpfs", "overlay", "squashfs"}, "Pseudo-filesystem leaked"
-                if metric["name"] == "diskio":
-                    assert not metric["tags"]["name"].startswith(("loop", "ram", "fd")), "Virtual device leaked"
+            names = {name for sample in accepted_samples for name in sample["host"]}
+            assert {"cpu", "memory", "swap", "network", "system"} <= names, f"Missing host sections: {names}"
+            for sample in accepted_samples:
+                host = sample["host"]
+                if "cpu" in host:
+                    assert "usage_percent" in host["cpu"], "CPU percentage missing"
+                for row in host.get("network", []):
+                    assert row["interface"].startswith(("eth", "en")), "Virtual/loopback interface leaked"
+                for row in host.get("disks", []):
+                    assert row["filesystem"] not in {"tmpfs", "overlay", "squashfs"}, "Pseudo-filesystem leaked"
+                for row in host.get("disk_io", []):
+                    assert not row["device"].startswith(("loop", "ram", "fd")), "Virtual device leaked"
             assert TOKEN not in logs, "Token appeared in Telegraf logs"
             report = {"telegraf_version": subprocess.check_output([args.telegraf, "--version"], text=True).strip(),
                       "platform": os.uname().sysname, "architecture": os.uname().machine,

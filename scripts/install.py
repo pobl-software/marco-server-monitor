@@ -100,6 +100,7 @@ def render_config(args, sender=None):
   total_include = ["cpu", "blkio", "network"]
   docker_label_include = ["com.docker.compose.project", "com.docker.compose.service"]
   tag_env = []
+  fieldinclude = ["n_containers", "n_containers_running", "n_containers_stopped", "n_containers_paused", "usage_percent", "usage", "limit", "rx_bytes", "tx_bytes", "io_service_bytes_recursive_read", "io_service_bytes_recursive_write", "oomkilled", "exitcode", "started_at", "finished_at", "uptime_ns", "health_status", "failing_streak"]
 ''' if getattr(args, "docker_enabled", False) else ""
     text = text.replace("@@DOCKER_INPUT@@", docker_input)
     replacements = {

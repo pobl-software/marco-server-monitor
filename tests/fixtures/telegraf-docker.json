@@ -1,0 +1,147 @@
+{
+  "metrics": [
+    {
+      "name": "docker_container_cpu",
+      "fields": {
+        "container_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "usage_percent": 125.5,
+        "usage_total": 64000000000
+      },
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "source": "0123456789ab",
+        "container_name": "crm-web-1",
+        "container_image": "example/crm",
+        "container_version": "latest",
+        "container_status": "running",
+        "cpu": "cpu-total",
+        "com.docker.compose.project": "crm",
+        "com.docker.compose.service": "web"
+      },
+      "timestamp": 1790424000
+    },
+    {
+      "name": "docker_container_status",
+      "fields": {
+        "container_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        "oomkilled": false,
+        "pid": 4123,
+        "exitcode": 0,
+        "started_at": 1790423400,
+        "finished_at": 0,
+        "uptime_ns": 600000000000
+      },
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "source": "0123456789ab",
+        "container_name": "crm-web-1",
+        "container_image": "example/crm",
+        "container_version": "latest",
+        "container_status": "running",
+        "com.docker.compose.project": "crm",
+        "com.docker.compose.service": "web"
+      },
+      "timestamp": 1790424000
+    },
+    {
+      "name": "docker_container_health",
+      "fields": {
+        "health_status": "healthy",
+        "failing_streak": 0
+      },
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "source": "0123456789ab",
+        "container_name": "crm-web-1",
+        "container_image": "example/crm",
+        "container_version": "latest",
+        "container_status": "running",
+        "com.docker.compose.project": "crm",
+        "com.docker.compose.service": "web"
+      },
+      "timestamp": 1790424000
+    },
+    {
+      "name": "docker_container_mem",
+      "fields": {
+        "usage": 268435456,
+        "limit": 1073741824,
+        "usage_percent": 25,
+        "cache": 64000,
+        "container_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      },
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "source": "0123456789ab",
+        "container_name": "crm-web-1",
+        "container_image": "example/crm",
+        "container_version": "latest",
+        "container_status": "running",
+        "com.docker.compose.project": "crm",
+        "com.docker.compose.service": "web"
+      },
+      "timestamp": 1790424000
+    },
+    {
+      "name": "docker_container_net",
+      "fields": {
+        "rx_bytes": 123456789,
+        "tx_bytes": 987654321,
+        "rx_packets": 9999
+      },
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "source": "0123456789ab",
+        "container_name": "crm-web-1",
+        "container_image": "example/crm",
+        "container_version": "latest",
+        "container_status": "running",
+        "com.docker.compose.project": "crm",
+        "com.docker.compose.service": "web",
+        "network": "total"
+      },
+      "timestamp": 1790424000
+    },
+    {
+      "name": "docker_container_blkio",
+      "fields": {
+        "io_service_bytes_recursive_read": 3456789,
+        "io_service_bytes_recursive_write": 4567890,
+        "io_serviced_recursive_read": 321
+      },
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01",
+        "source": "0123456789ab",
+        "container_name": "crm-web-1",
+        "container_image": "example/crm",
+        "container_version": "latest",
+        "container_status": "running",
+        "com.docker.compose.project": "crm",
+        "com.docker.compose.service": "web",
+        "device": "total"
+      },
+      "timestamp": 1790424000
+    },
+    {
+      "name": "docker",
+      "fields": {
+        "n_containers": 1,
+        "n_containers_running": 1,
+        "n_containers_stopped": 0,
+        "n_containers_paused": 0,
+        "n_images": 10
+      },
+      "tags": {
+        "host": "ubuntu-01",
+        "server_id": "production-01"
+      },
+      "timestamp": 1790424000
+    }
+  ]
+}

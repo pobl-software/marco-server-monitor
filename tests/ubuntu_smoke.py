@@ -47,9 +47,11 @@ def main():
                 expected_id = {"Bearer smoke-token-one": "smoke-one", "Bearer smoke-token-two": "smoke-two"}.get(token)
                 assert expected_id, "unexpected bearer token"
                 assert self.headers.get("Content-Type") == "application/json", "invalid content type"
-                metrics = json.loads(self.rfile.read(int(self.headers["Content-Length"])))["metrics"]
-                assert all(m["tags"]["server_id"] == expected_id for m in metrics), "config/token pair mismatch"
-                samples.extend(metrics)
+                payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                assert payload["schema_version"] == 1, "unexpected schema version"
+                assert payload["server_id"] == expected_id, "config/token pair mismatch"
+                assert payload["hostname"] and payload["samples"], "missing identity or samples"
+                samples.extend(dict(sample, server_id=payload["server_id"]) for sample in payload["samples"])
                 self.send_response(204)
                 self.send_header("Content-Length", "0")
                 self.end_headers()
@@ -98,14 +100,14 @@ def main():
                 install("smoke-one", "smoke-token-one")
             first = os.readlink("/etc/server-monitor/current")
             installed_test(project)
-            wait_for(lambda: any(m["name"] == "cpu" and m["tags"]["server_id"] == "smoke-one" for m in samples))
+            wait_for(lambda: any("cpu" in s["host"] and s["server_id"] == "smoke-one" for s in samples))
             assert not errors, errors
-            disks = [m for m in samples if m["name"] == "disk"]
-            assert any(m["tags"]["path"] == str(data_mount) for m in disks), "Separate ext4 mount was not monitored"
-            assert not any(m["tags"]["path"] == str(ignored_mount) for m in disks), "tmpfs was not filtered"
-            assert all(m["tags"]["fstype"] not in {"overlay", "tmpfs", "squashfs"} for m in disks)
-            networks = [m for m in samples if m["name"] == "net"]
-            assert networks and all(m["tags"]["interface"].startswith(("eth", "en")) for m in networks)
+            disks = [row for sample in samples for row in sample["host"].get("disks", [])]
+            assert any(row["mount"] == str(data_mount) for row in disks), "Separate ext4 mount was not monitored"
+            assert not any(row["mount"] == str(ignored_mount) for row in disks), "tmpfs was not filtered"
+            assert all(row["filesystem"] not in {"overlay", "tmpfs", "squashfs"} for row in disks)
+            networks = [row for sample in samples for row in sample["host"].get("network", [])]
+            assert networks and all(row["interface"].startswith(("eth", "en")) for row in networks)
             run("python3", str(project / "scripts/install.py"), "--check")
             current = Path("/etc/server-monitor/current")
             assert (current / "credentials.env").stat().st_mode & 0o777 == 0o600
@@ -116,12 +118,12 @@ def main():
             install("smoke-two", "smoke-token-two")
             second = os.readlink("/etc/server-monitor/current")
             assert os.readlink("/etc/server-monitor/previous") == first
-            wait_for(lambda: any(m["tags"]["server_id"] == "smoke-two" for m in samples))
+            wait_for(lambda: any(s["server_id"] == "smoke-two" for s in samples))
             samples.clear()
             run("python3", str(project / "scripts/install.py"), "--rollback")
             assert os.readlink("/etc/server-monitor/current") == first
             assert os.readlink("/etc/server-monitor/previous") == second
-            wait_for(lambda: any(m["tags"]["server_id"] == "smoke-one" for m in samples))
+            wait_for(lambda: any(s["server_id"] == "smoke-one" for s in samples))
             # A valid config with an executable that exits immediately must roll back.
             unit_template = project / "systemd/server-monitor.service"
             original_unit = unit_template.read_text()

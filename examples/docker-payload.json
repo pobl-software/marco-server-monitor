@@ -1,22 +1,41 @@
 {
-  "metrics": [
+  "schema_version": 1,
+  "server_id": "production-01",
+  "hostname": "ubuntu-01",
+  "samples": [
     {
-      "name": "docker_container_cpu",
-      "fields": {"container_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "usage_percent": 125.5, "usage_total": 64000000000},
-      "tags": {"host": "ubuntu-01", "server_id": "production-01", "source": "0123456789ab", "container_name": "crm-web-1", "container_image": "example/crm", "container_version": "latest", "container_status": "running", "cpu": "cpu-total"},
-      "timestamp": 1790424000
-    },
-    {
-      "name": "docker_container_status",
-      "fields": {"container_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "oomkilled": false, "pid": 4123, "exitcode": 0, "started_at": 1790423400, "finished_at": 0, "uptime_ns": 600000000000},
-      "tags": {"host": "ubuntu-01", "server_id": "production-01", "source": "0123456789ab", "container_name": "crm-web-1", "container_image": "example/crm", "container_version": "latest", "container_status": "running"},
-      "timestamp": 1790424000
-    },
-    {
-      "name": "docker_container_health",
-      "fields": {"health_status": "healthy", "failing_streak": 0},
-      "tags": {"host": "ubuntu-01", "server_id": "production-01", "source": "0123456789ab", "container_name": "crm-web-1", "container_image": "example/crm", "container_version": "latest", "container_status": "running"},
-      "timestamp": 1790424000
+      "collected_at": 1790424000,
+      "host": {
+        "docker": {
+          "paused_containers": 0,
+          "running_containers": 1,
+          "stopped_containers": 0,
+          "total_containers": 1
+        }
+      },
+      "containers": [
+        {
+          "id": "0123456789ab",
+          "name": "crm-web-1",
+          "state": "running",
+          "compose_project": "crm",
+          "compose_service": "web",
+          "cpu_percent": 125.5,
+          "disk_read_bytes": 3456789,
+          "disk_written_bytes": 4567890,
+          "exit_code": 0,
+          "finished_at": 0,
+          "health": "healthy",
+          "health_failures": 0,
+          "memory_limit_bytes": 1073741824,
+          "memory_used_bytes": 268435456,
+          "network_received_bytes": 123456789,
+          "network_sent_bytes": 987654321,
+          "oom_killed": false,
+          "started_at": 1790423400,
+          "uptime_seconds": 600
+        }
+      ]
     }
   ]
 }
