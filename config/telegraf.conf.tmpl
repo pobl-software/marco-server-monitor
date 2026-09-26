@@ -46,6 +46,8 @@
 [[inputs.system]]
   fieldinclude = ["load1", "load5", "load15", "n_cpus", "uptime"]
 
+@@DOCKER_INPUT@@
+
 [[outputs.exec]]
   command = ["/usr/bin/python3", @@SENDER@@, "--url", @@URL@@]
   timeout = "12s"

@@ -2,10 +2,12 @@ import argparse
 import importlib.util
 import os
 from pathlib import Path
+import stat
 import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 SPEC = importlib.util.spec_from_file_location("installer", Path(__file__).parents[1] / "scripts/install.py")
 install = importlib.util.module_from_spec(SPEC)
@@ -14,7 +16,7 @@ SPEC.loader.exec_module(install)
 
 def options(**changes):
     values = dict(url="https://crm.example.com/api/metrics", server_id="server-1", interval="10s",
-                  flush_interval="60s", interfaces=["eth*", "en*"])
+                  flush_interval="60s", interfaces=["eth*", "en*"], docker_enabled=False)
     values.update(changes)
     return argparse.Namespace(**values)
 
@@ -95,6 +97,46 @@ class ValidationTests(unittest.TestCase):
         with patch.object(install.subprocess, "run", return_value=result), self.assertRaises(install.InstallError) as error:
             install.Commands().run(["telegraf"], env={"SERVER_MONITOR_TOKEN": "secret-token"})
         self.assertNotIn("secret-token", str(error.exception))
+
+    def test_docker_config_uses_container_identity_and_selected_labels(self):
+        import tomllib
+        parsed = tomllib.loads(install.render_config(options(docker_enabled=True)))
+        docker = parsed["inputs"]["docker"][0]
+        self.assertEqual(docker["endpoint"], "unix:///var/run/docker.sock")
+        self.assertTrue(docker["source_tag"])
+        self.assertEqual(docker["total_include"], ["cpu", "blkio", "network"])
+        self.assertIn("exited", docker["container_state_include"])
+        self.assertEqual(docker["docker_label_include"], ["com.docker.compose.project", "com.docker.compose.service"])
+        self.assertEqual(docker["tag_env"], [])
+        self.assertEqual(parsed["global_tags"]["server_id"], "server-1")
+
+    def test_docker_toggle_rejects_non_boolean_values(self):
+        for value in ("false", 1, None):
+            with self.subTest(value=value), self.assertRaises(install.InstallError):
+                install.validate_options(options(docker_enabled=value))
+
+    def test_disabled_docker_does_not_require_a_socket(self):
+        with patch.object(Path, "stat", side_effect=AssertionError("must not inspect Docker")):
+            self.assertEqual(install.Installer().docker_groups(False), [])
+        self.assertNotIn("SupplementaryGroups", install.render_unit())
+
+    def test_docker_requires_a_socket_with_dedicated_group_access(self):
+        installer = install.Installer()
+        with patch.object(Path, "stat", side_effect=FileNotFoundError):
+            with self.assertRaisesRegex(install.InstallError, "Start Docker or disable"):
+                installer.docker_groups(True)
+        for mode, uid, gid in [(stat.S_IFREG | 0o660, 0, 995), (stat.S_IFSOCK | 0o600, 0, 995),
+                               (stat.S_IFSOCK | 0o660, 0, 0), (stat.S_IFSOCK | 0o660, 1000, 995)]:
+            with self.subTest(mode=mode, uid=uid, gid=gid), patch.object(Path, "stat", return_value=SimpleNamespace(st_mode=mode, st_uid=uid, st_gid=gid)):
+                with self.assertRaises(install.InstallError):
+                    installer.docker_groups(True)
+        with patch.object(Path, "stat", return_value=SimpleNamespace(st_mode=stat.S_IFSOCK | 0o660, st_uid=0, st_gid=995)):
+            self.assertEqual(installer.docker_groups(True), [995])
+
+    def test_collector_validation_receives_explicit_supplementary_groups(self):
+        with patch.object(install.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")) as run:
+            install.Commands().run(["telegraf", "--test"], user=100, group=100, extra_groups=[995])
+            self.assertEqual(run.call_args.kwargs["extra_groups"], [995])
 
 
 class FakeCommands:
@@ -213,6 +255,62 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue((path / 'send_metrics.py').exists())
         self.installer.rollback()
         self.assertEqual(self.installer.release('current'), first)
+
+    def test_docker_enable_disable_and_rollback_keep_permissions_with_config(self):
+        import tomllib
+        with patch.object(self.installer, "docker_groups", side_effect=lambda enabled: [995] if enabled else []):
+            first = self.do_install(docker_enabled=True)
+            self.assertIn("SupplementaryGroups=995", self.installer.unit.read_text())
+            self.assertEqual(next(kwargs["extra_groups"] for argv, kwargs in self.commands.calls if "--test" in argv), [995])
+            self.assertFalse(any(argv[0] in {"usermod", "chmod", "chown"} for argv, _ in self.commands.calls))
+            self.commands.calls.clear()
+            second = self.do_install(docker_enabled=False)
+            self.assertNotIn("SupplementaryGroups", self.installer.unit.read_text())
+            config = tomllib.loads((self.installer.directory / second / "telegraf.conf").read_text())
+            self.assertNotIn("docker", config["inputs"])
+            self.assertEqual(next(kwargs["extra_groups"] for argv, kwargs in self.commands.calls if "--test" in argv), [])
+            self.installer.rollback()
+            self.assertEqual(self.installer.release("current"), first)
+            self.assertIn("SupplementaryGroups=995", self.installer.unit.read_text())
+            self.installer.rollback()
+            self.assertEqual(self.installer.release("current"), second)
+            self.assertNotIn("SupplementaryGroups", self.installer.unit.read_text())
+
+    def test_failed_docker_enable_preserves_live_host_configuration(self):
+        first = self.do_install()
+        old_unit = self.installer.unit.read_text()
+        with self.assertRaisesRegex(install.InstallError, "Start Docker or disable"):
+            self.do_install(docker_enabled=True)
+        self.assertEqual(self.installer.release("current"), first)
+        self.assertEqual(self.installer.unit.read_text(), old_unit)
+        self.assertTrue(self.commands.active)
+        self.commands.fail_validation = True
+        with patch.object(self.installer, "docker_groups", side_effect=lambda enabled: [995] if enabled else []):
+            with self.assertRaises(install.InstallError):
+                self.do_install(docker_enabled=True)
+        self.assertEqual(self.installer.release("current"), first)
+        self.assertEqual(self.installer.unit.read_text(), old_unit)
+
+    def test_docker_restart_failure_restores_service_access(self):
+        first = self.do_install()
+        old_unit = self.installer.unit.read_text()
+        self.commands.fail_restart = True
+        with patch.object(self.installer, "docker_groups", side_effect=lambda enabled: [995] if enabled else []):
+            with self.assertRaises(install.InstallError):
+                self.do_install(docker_enabled=True)
+        self.assertEqual(self.installer.release("current"), first)
+        self.assertEqual(self.installer.unit.read_text(), old_unit)
+        self.assertNotIn("SupplementaryGroups", self.installer.unit.read_text())
+
+    def test_rollback_with_changed_docker_socket_group_leaves_current_active(self):
+        with patch.object(self.installer, "docker_groups", side_effect=lambda enabled: [995] if enabled else []):
+            self.do_install(docker_enabled=True)
+            second = self.do_install()
+        with patch.object(self.installer, "docker_groups", return_value=[996]):
+            with self.assertRaisesRegex(install.InstallError, "ownership changed"):
+                self.installer.rollback()
+        self.assertEqual(self.installer.release("current"), second)
+        self.assertNotIn("SupplementaryGroups", self.installer.unit.read_text())
 
     def test_rollback_refuses_legacy_redirect_following_output(self):
         first = self.do_install()

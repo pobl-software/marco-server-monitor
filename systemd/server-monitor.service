@@ -1,6 +1,6 @@
 # Managed by server-monitor
 [Unit]
-Description=Host metrics delivered to the CRM by Telegraf
+Description=Server metrics delivered to the CRM by Telegraf
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=60

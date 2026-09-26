@@ -1,10 +1,10 @@
 # Marco Server Monitor
 
-Host monitoring for Ubuntu servers, with metrics delivered to a CRM or other HTTPS receiver.
+Host and optional Docker container monitoring for Ubuntu servers, with metrics delivered to a CRM or other HTTPS receiver.
 
 Marco uses [Telegraf](https://github.com/influxdata/telegraf) to collect CPU, memory, disk and network metrics, and includes a terminal control panel for setup and day-to-day management. It runs on Ubuntu 24.04 on cloud servers or physical machines.
 
-The project includes the monitoring agent, installer and management tools. A separate receiving endpoint handles metric ingestion and storage. The monitor needs no AWS APIs, cloud credentials, local database, inbound port or Docker socket.
+The project includes the monitoring agent, installer and management tools. A separate receiving endpoint handles metric ingestion and storage. The monitor needs no AWS APIs, cloud credentials, local database or inbound port. Docker socket access is needed only when you enable Docker monitoring, which is disabled by default.
 
 ## Contents
 
@@ -21,13 +21,14 @@ The project includes the monitoring agent, installer and management tools. A sep
 ## Features
 
 - **Host metrics:** CPU, RAM, swap, filesystems, disk I/O, network traffic, load and uptime.
+- **Optional Docker metrics:** per-container CPU, memory, network, block I/O, lifecycle status and configured health checks; enable or disable in **Configure**.
 - **Direct HTTPS delivery:** JSON batches authenticated with a separate bearer token for each server.
 - **Terminal control panel:** guided setup, live service status, configuration, logs and service controls.
 - **Background operation:** a dedicated systemd service that starts at boot and collects as the unprivileged `telegraf` user.
 - **Configuration rollback:** restore the previous configuration and token.
 - **Provider independence:** stable server IDs that do not depend on IP addresses or cloud accounts.
 
-These are host metrics. They do not establish whether a website or database is healthy. Delivery uses an in-memory buffer, so telemetry can be lost during extended outages or restarts.
+Resource metrics do not establish whether a website or database is healthy. Docker health status reflects the container's own configured health check. Delivery uses an in-memory buffer, so telemetry can be lost during extended outages or restarts.
 
 ## Requirements
 
@@ -92,6 +93,8 @@ Every metric includes a stable `server_id`, the OS hostname and its collection t
 | `system` | Load averages, CPU count and uptime in seconds |
 
 Temporary filesystems and Docker overlays are excluded; other mounted filesystems, including separate database volumes, are eligible. Loop, RAM and floppy block devices are excluded. Network collection defaults to `eth*` and `en*`, excluding loopback and protocol-wide `all` metrics. Check unusual or bonded interface names with `ip -brief link`.
+
+Docker monitoring is **disabled by default**, including for existing host-only installations. In **Configure**, select **Docker monitoring**, press **Space** to enable or disable it, then choose **Save and start monitor**. When enabled, `docker` and `docker_container_*` measurements are sent alongside host metrics, with container identity and selected Compose project/service labels. The [Docker setup guide](docs/installation.md#docker-container-monitoring) describes socket access; the [CRM contract](docs/crm-integration.md#docker-container-metrics) describes fields and identity.
 
 Disk and network counters are cumulative. See the [integration guide](docs/crm-integration.md#units-and-interpretation) for units, rate calculations and reboot handling. Resource usage measurements and their limits are recorded in [verification results](docs/verification.md#recorded-results).
 

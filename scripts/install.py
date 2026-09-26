@@ -58,6 +58,8 @@ def validate_options(args):
         raise InstallError("Reporting interval must be at least the collection interval.")
     if not args.interfaces or any(not re.fullmatch(r"[A-Za-z0-9_*?\[\].:-]{1,64}", x) for x in args.interfaces):
         raise InstallError("Interface filters must be nonempty interface names or glob patterns.")
+    if not isinstance(getattr(args, "docker_enabled", False), bool):
+        raise InstallError("Docker monitoring must be enabled or disabled.")
 
 
 def validate_token(token):
@@ -89,6 +91,17 @@ def read_token(path):
 
 def render_config(args, sender=None):
     text = (PROJECT / "config/telegraf.conf.tmpl").read_text()
+    docker_input = '''[[inputs.docker]]
+  endpoint = "unix:///var/run/docker.sock"
+  timeout = "5s"
+  source_tag = true
+  container_state_include = ["running", "paused", "restarting", "exited", "dead", "created"]
+  perdevice_include = []
+  total_include = ["cpu", "blkio", "network"]
+  docker_label_include = ["com.docker.compose.project", "com.docker.compose.service"]
+  tag_env = []
+''' if getattr(args, "docker_enabled", False) else ""
+    text = text.replace("@@DOCKER_INPUT@@", docker_input)
     replacements = {
         "SERVER_ID": args.server_id, "URL": args.url,
         "INTERVAL": args.interval, "FLUSH_INTERVAL": args.flush_interval,
@@ -100,12 +113,20 @@ def render_config(args, sender=None):
     return text
 
 
+def render_unit(docker_groups=()):
+    text = (PROJECT / "systemd/server-monitor.service").read_text()
+    if docker_groups:
+        text = text.replace("[Service]\n", "[Service]\nSupplementaryGroups=" + " ".join(map(str, docker_groups)) + "\n")
+        text = text.replace("After=network-online.target\n", "After=network-online.target docker.service\n")
+    return text
+
+
 class Commands:
-    def run(self, argv, *, check=True, env=None, user=None, group=None, timeout=180):
+    def run(self, argv, *, check=True, env=None, user=None, group=None, extra_groups=(), timeout=180):
         options = {"env": dict(BASE_ENV, **(env or {})), "text": True,
                    "capture_output": True, "timeout": timeout}
         if user is not None:
-            options.update(user=user, group=group, extra_groups=[], umask=0o077)
+            options.update(user=user, group=group, extra_groups=list(extra_groups), umask=0o077)
         try:
             result = subprocess.run(argv, **options)
         except (OSError, subprocess.TimeoutExpired):
@@ -254,6 +275,18 @@ class Installer:
             raise InstallError("Refusing to run metrics collection as root.")
         self.uid, self.gid = user.pw_uid, user.pw_gid
 
+    def docker_groups(self, enabled):
+        if not enabled:
+            return []
+        try:
+            info = (self.root / "var/run/docker.sock").stat()
+        except OSError:
+            raise InstallError("Docker monitoring requires Docker running at /var/run/docker.sock. Start Docker or disable Docker monitoring.") from None
+        if (not stat.S_ISSOCK(info.st_mode) or info.st_uid != 0 or info.st_gid == 0
+                or info.st_mode & 0o060 != 0o060):
+            raise InstallError("Docker monitoring requires a root-owned Docker socket with read/write access for a dedicated non-root group.")
+        return [info.st_gid]
+
     def validate_release(self, release):
         path = self.directory / release
         token = (path / "credentials.env").read_text().removeprefix("SERVER_MONITOR_TOKEN=").removesuffix("\n")
@@ -268,14 +301,20 @@ class Installer:
                 raise ValueError
             args = argparse.Namespace(url=command[-1], server_id=config["global_tags"]["server_id"],
                                       interval=config["agent"]["interval"], flush_interval=config["agent"]["flush_interval"],
-                                      interfaces=config["inputs"]["net"][0]["interfaces"])
+                                      interfaces=config["inputs"]["net"][0]["interfaces"],
+                                      docker_enabled="docker" in config["inputs"])
             validate_options(args)
         except (KeyError, IndexError, TypeError, ValueError):
             raise InstallError("Configuration lacks the secure HTTPS sender. Reconfigure to upgrade; legacy HTTP configurations cannot be rolled back to.") from None
+        groups = self.docker_groups(args.docker_enabled)
+        if groups:
+            unit = (path / "server-monitor.service").read_text()
+            if re.findall(r"^SupplementaryGroups=(.*)$", unit, re.M) != [str(groups[0])]:
+                raise InstallError("Docker socket ownership changed. Reconfigure Docker monitoring before checking or restoring this configuration.")
         self.run("/usr/bin/python3", str(sender), "--url", args.url, "--check",
                  env={"SERVER_MONITOR_TOKEN": token}, user=self.uid, group=self.gid, timeout=15)
         self.run(str(self.root / "usr/bin/telegraf"), "--config", str(path / "telegraf.conf"), "--test",
-                 env={"SERVER_MONITOR_TOKEN": token}, user=self.uid, group=self.gid, timeout=60)
+                 env={"SERVER_MONITOR_TOKEN": token}, user=self.uid, group=self.gid, extra_groups=groups, timeout=60)
 
     def wait_active(self):
         for _ in range(5):
@@ -299,6 +338,7 @@ class Installer:
                 shutil.rmtree(path)
 
     def install(self, args, token):
+        groups = self.docker_groups(getattr(args, "docker_enabled", False))
         self.prepare_package()
         self.account()
         self.directory.mkdir(exist_ok=True, mode=0o750)
@@ -322,7 +362,7 @@ class Installer:
             atomic_write(candidate / "send_metrics.py", (PROJECT / "scripts/send_metrics.py").read_text(), 0o640, self.gid)
             atomic_write(candidate / "telegraf.conf", render_config(args, sender=candidate / "send_metrics.py"), 0o640, self.gid)
             atomic_write(candidate / "credentials.env", f"SERVER_MONITOR_TOKEN={token}\n", 0o600)
-            atomic_write(candidate / "server-monitor.service", (PROJECT / "systemd/server-monitor.service").read_text(), 0o640, self.gid)
+            atomic_write(candidate / "server-monitor.service", render_unit(groups), 0o640, self.gid)
             self.message("Validating configuration as the unprivileged Telegraf account (no metrics sent)…")
             self.validate_release(target)
             self.run("systemd-analyze", "verify", str(candidate / "server-monitor.service"))
@@ -418,7 +458,7 @@ def installation_lock():
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Install host-only Telegraf monitoring on Ubuntu 24.04.")
+    parser = argparse.ArgumentParser(description="Install host and optional Docker monitoring on Ubuntu 24.04.")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="Validate installed config/inputs without sending metrics")
     mode.add_argument("--rollback", action="store_true", help="Restore previous successful configuration and token")
@@ -429,6 +469,8 @@ def main():
     parser.add_argument("--interval", default="10s", help="Collection interval (default: 10s)")
     parser.add_argument("--flush-interval", default="60s", help="Reporting interval (default: 60s)")
     parser.add_argument("--interfaces", nargs="+", default=["eth*", "en*"], help="Quoted interface names/globs (default: 'eth*' 'en*')")
+    parser.add_argument("--docker", dest="docker_enabled", action=argparse.BooleanOptionalAction, default=False,
+                        help="Enable Docker container metrics and service-only Docker socket access (default: disabled)")
     args = parser.parse_args()
     try:
         if not (args.check or args.rollback or args.uninstall):

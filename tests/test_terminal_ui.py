@@ -56,17 +56,42 @@ class FormTests(unittest.TestCase):
 
     def test_submit_only_at_save_and_start(self):
         form = ui.SetupForm(ui.Settings(), False)
-        for _ in range(6):
+        for _ in range(7):
             self.assertIsNone(form.handle("\n"))
         self.assertEqual(form.handle("\n"), "submit")
 
     def test_backtab_wrap_and_resize_does_not_edit(self):
         form = ui.SetupForm(ui.Settings(), False)
         form.handle(curses.KEY_BTAB)
-        self.assertEqual(form.focus, 6)
+        self.assertEqual(form.focus, 7)
         old = form.values.copy()
         form.handle(curses.KEY_RESIZE)
         self.assertEqual(old, form.values)
+
+    def test_docker_defaults_disabled_and_keyboard_can_enable_then_disable(self):
+        settings = ui.Settings(url="https://crm.example.com/metrics", server_id="server-1")
+        form = ui.SetupForm(settings, True)
+        self.assertFalse(form.submit()[0].docker_enabled)
+        for _ in range(6):
+            form.handle("\t")
+        self.assertEqual(form.masked_value(6), "[ Disabled ]")
+        form.handle(" ")
+        self.assertTrue(form.submit()[0].docker_enabled)
+        self.assertFalse(settings.docker_enabled)
+        form.handle(curses.KEY_LEFT)
+        self.assertFalse(form.submit()[0].docker_enabled)
+        form.handle(curses.KEY_RIGHT)
+        self.assertTrue(form.submit()[0].docker_enabled)
+        form.handle("\t")
+        self.assertEqual(form.handle("\n"), "submit")
+
+    def test_cancelling_docker_change_preserves_saved_setting(self):
+        settings = ui.Settings(docker_enabled=True)
+        form = ui.SetupForm(settings, True)
+        form.focus = form.DOCKER_FOCUS
+        form.handle(" ")
+        self.assertEqual(form.handle("\x1b"), "cancel")
+        self.assertTrue(settings.docker_enabled)
 
 
 class ControllerTests(unittest.TestCase):
@@ -93,6 +118,14 @@ class ControllerTests(unittest.TestCase):
 
     def test_settings_read_current_config_without_resetting_custom_defaults(self):
         self.assertEqual(self.controller.settings(), self.settings)
+
+    def test_saved_docker_setting_is_read_and_preserved_on_reconfigure(self):
+        self.settings.docker_enabled = True
+        (self.release / "telegraf.conf").write_text(install.render_config(self.settings))
+        saved = self.controller.settings()
+        self.assertTrue(saved.docker_enabled)
+        form = ui.SetupForm(saved, True)
+        self.assertEqual(form.submit()[0], saved)
 
     def test_legacy_http_settings_can_be_read_for_upgrade(self):
         config = install.render_config(self.settings).split('[[outputs.exec]]')[0]
@@ -199,6 +232,26 @@ class FakeScreen:
 
 
 class RenderingTests(unittest.TestCase):
+    def test_docker_toggle_fits_minimum_terminal_and_dashboard_shows_state(self):
+        screen = FakeScreen(24, 76)
+        controller = ui.DemoController()
+        app = ui.TerminalUI(screen, controller, demo=True)
+        app.refresh()
+        app.configure()
+        app.form.focus = app.form.DOCKER_FOCUS
+        with patch.object(ui.curses, "curs_set"):
+            app.render()
+        self.assertIn("Docker monitoring", " ".join(screen.text))
+        self.assertIn("[ Disabled ]", " ".join(screen.text))
+        self.assertIn("Space / Left / Right", " ".join(screen.text))
+        self.assertIn("grants control", " ".join(screen.text))
+        self.assertIn("Save and start", " ".join(screen.text))
+        controller.config.docker_enabled = True
+        app.form = None
+        app.refresh()
+        app.render()
+        self.assertIn("Enabled", " ".join(screen.text))
+
     def test_uninstall_defaults_to_cancel_and_escape_never_removes(self):
         app = ui.TerminalUI(FakeScreen(), ui.DemoController(), demo=True)
         app.launch = MagicMock()

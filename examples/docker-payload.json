@@ -1,0 +1,22 @@
+{
+  "metrics": [
+    {
+      "name": "docker_container_cpu",
+      "fields": {"container_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "usage_percent": 125.5, "usage_total": 64000000000},
+      "tags": {"host": "ubuntu-01", "server_id": "production-01", "source": "0123456789ab", "container_name": "crm-web-1", "container_image": "example/crm", "container_version": "latest", "container_status": "running", "cpu": "cpu-total"},
+      "timestamp": 1790424000
+    },
+    {
+      "name": "docker_container_status",
+      "fields": {"container_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", "oomkilled": false, "pid": 4123, "exitcode": 0, "started_at": 1790423400, "finished_at": 0, "uptime_ns": 600000000000},
+      "tags": {"host": "ubuntu-01", "server_id": "production-01", "source": "0123456789ab", "container_name": "crm-web-1", "container_image": "example/crm", "container_version": "latest", "container_status": "running"},
+      "timestamp": 1790424000
+    },
+    {
+      "name": "docker_container_health",
+      "fields": {"health_status": "healthy", "failing_streak": 0},
+      "tags": {"host": "ubuntu-01", "server_id": "production-01", "source": "0123456789ab", "container_name": "crm-web-1", "container_image": "example/crm", "container_version": "latest", "container_status": "running"},
+      "timestamp": 1790424000
+    }
+  ]
+}

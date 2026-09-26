@@ -89,6 +89,11 @@ class SenderTests(unittest.TestCase):
         self.assertEqual(self.send().returncode, 0)
         self.assertEqual(self.requests, [('/metrics?private=value', 'Bearer ' + TOKEN, PAYLOAD)])
 
+    def test_docker_identity_health_and_boolean_fields_reach_receiver_unchanged(self):
+        payload = (SENDER.parents[1] / 'examples/docker-payload.json').read_bytes()
+        self.assertEqual(self.send(payload=payload).returncode, 0)
+        self.assertEqual(self.requests, [('/metrics?private=value', 'Bearer ' + TOKEN, payload)])
+
     def test_every_redirect_is_rejected_without_contacting_its_target(self):
         for scheme, port in (('http', self.http.server_port), ('https', self.https.server_port)):
             for code in (301, 302, 303, 307, 308):

@@ -33,7 +33,7 @@ Use arrows/Tab and Enter, or the keyboard shortcuts:
 | **U** | Uninstall the monitor after confirmation |
 | **Q** | Close the interface; a running monitor continues in the background |
 
-The interface changes only `server-monitor.service`. Start/Stop do not change its startup-at-boot setting; by default, a stopped monitor starts again after a server reboot. Stopping/restarting loses buffered unsent samples. Configure pre-fills the installed settings, so custom intervals/interface filters are preserved. Leave the token blank during reconfiguration to retain it. **Save and start** and **Rollback** activate the selected configuration and start the service.
+The interface changes only `server-monitor.service`. Start/Stop do not change its startup-at-boot setting; by default, a stopped monitor starts again after a server reboot. Stopping/restarting loses buffered unsent samples. Configure pre-fills the installed settings, so custom intervals/interface filters and the Docker toggle are preserved. Select **Docker monitoring** and press Space to enable or disable container collection; it defaults to disabled. Leave the token blank during reconfiguration to retain it. **Save and start** and **Rollback** activate the selected configuration and start the service.
 
 An installation/check can take time; the screen shows progress and waits for the operation to finish before allowing another action or exit. A running service and a successful local collection check do not confirm CRM delivery. Confirm fresh samples in your CRM separately.
 
@@ -65,7 +65,7 @@ sudo server-monitor --rollback
 
 For a copied checkout, use `sudo ./install.sh --rollback` instead.
 
-Rollback swaps the current and previous configurations. It does not downgrade the Telegraf package, restore receiver behaviour or recover buffered samples. Current and previous releases live under `/etc/server-monitor/releases`; credentials have mode 600 and are read by systemd before it launches the unprivileged process. No root collection or Docker access is granted. There are at most two successful retained releases after installation.
+Rollback swaps the current and previous configurations. It does not downgrade the Telegraf package, restore receiver behaviour or recover buffered samples. Current and previous releases live under `/etc/server-monitor/releases`; credentials have mode 600 and are read by systemd before it launches the collector as `telegraf`. Docker access is granted only when enabled, through the release's service unit; rollback restores that setting and access together. There are at most two successful retained releases after installation.
 
 Each release includes its own HTTPS sender, so rollback preserves the configuration and sender together. Legacy configurations using Telegraf's redirect-following HTTP output are refused by Check/Rollback. Open **Configure** and **Save and start** after updating source to upgrade an existing installation. Once two secure configurations have been saved, normal rollback is available again.
 
@@ -82,6 +82,7 @@ Unsent metrics are retried at subsequent flushes. The default memory buffer over
 - **Missing network data:** inspect `ip -brief link` and reinstall with matching interface names/globs.
 - **No CPU percentages in an initial sample:** counters need a subsequent collection; normal continuous collection supplies these.
 - **Missing filesystem:** confirm it is mounted and accessible to the Telegraf user; check its type against the exclusions.
+- **Missing Docker metrics:** check the saved Docker setting, Docker daemon state and `/var/run/docker.sock`. Start Docker before enabling; the standard root-owned socket must allow a dedicated non-root group read/write access. A changed socket group requires **Configure** and **Save and start**. A Docker-enabled monitor requires Docker available at startup; disable Docker collection if you need host-only operation without Docker. Stopped containers may have lifecycle status without resource data. Confirm the receiver accepts the new measurement names, strings and booleans.
 - **Installer errors:** command output is withheld because expanded config errors can contain secrets. The HTTPS sender reports only status codes or generic connection errors and never logs receiver response bodies. `--check` and `journalctl` help diagnose issues. Do not enable debug output or share credential files.
 
 Installation uses the currently documented InfluxData signing-key fingerprint. If the upstream key rotates, installation fails closed; verify the new fingerprint against the official documentation before updating the installer. A failed first installation can leave the dependency package/repository installed even though no monitor service was activated.

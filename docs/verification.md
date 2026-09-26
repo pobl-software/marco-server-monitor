@@ -2,6 +2,10 @@
 
 ## Recorded results
 
+The Docker monitoring addition was checked locally on **2026-09-26**: **90 automated tests passed**, including disabled defaults, saved toggle values, service-scoped socket groups, failed enable/activation recovery, enable/disable rollback, and Docker JSON delivery with string/boolean fields to a loopback HTTPS receiver. The real pseudo-terminal preview passed enabling, saving, reopening and disabling Docker monitoring. Rendering also passed at the minimum 76 × 24 terminal size. Shell syntax and diff whitespace checks passed.
+
+Live Docker collection and the Ubuntu systemd harness were **not rerun for this addition** because the local Docker engine was unavailable. Installer lifecycle tests use command fixtures; they do not establish live Docker API or systemd behavior. Before enabling on a server, run the collection check and confirm `docker_container_*` samples at the receiver. The results below describe the earlier host-only implementation.
+
 Verified on **2026-09-26**, in an isolated **Ubuntu 24.04 arm64** systemd container running on the local OrbStack Linux VM, with **Telegraf 1.40.1**. No production server or CRM endpoint was used and Telegraf was not installed on macOS.
 
 - **76 automated tests passed locally and on Ubuntu:** installer and terminal forms/controls, including archive safety checks, sender/rollback pairing, legacy rollback refusal, and uninstall checks.

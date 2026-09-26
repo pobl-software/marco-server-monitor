@@ -64,7 +64,7 @@ class TerminalSession:
 
     def setup(self, url, server_id, token):
         self.wait_for("First setup")
-        self.send("\x15" + url + "\t\x15" + server_id + "\t" + token + "\t\x15" + "2s" + "\t\x15" + "4s" + "\t\x15" + "eth* en*" + "\t\n")
+        self.send("\x15" + url + "\t\x15" + server_id + "\t" + token + "\t\x15" + "2s" + "\t\x15" + "4s" + "\t\x15" + "eth* en*" + "\t\t\n")
         self.wait_for("RUNNING", seconds=180)
         assert token.encode() not in self.output, "Token was echoed by the terminal"
 
@@ -103,6 +103,22 @@ def demo_test(project):
         session.wait_for("RUNNING")
         session.send("c")
         session.wait_for("Configure monitor")
+        session.send("\t" * 6)
+        session.wait_for("Space / Left / Right")
+        session.send(" ")
+        session.wait_for("Enabled")
+        session.send("\t\n")
+        session.wait_for("Demo action completed")
+        session.send("c")
+        session.wait_for("Configure monitor")
+        session.send("\t" * 6)
+        session.wait_for("Space / Left / Right")
+        session.send(" ")
+        session.wait_for("Disabled")
+        session.send("\t\n")
+        session.wait_for("Demo action completed")
+        session.send("c")
+        session.wait_for("Configure monitor")
         session.send("\x1b")
         session.wait_for("service controls")
         session.send("u")
@@ -114,7 +130,7 @@ def demo_test(project):
         session.send("y")
         session.wait_for("NOT INSTALLED")
         session.quit()
-    print("Real terminal preview: service controls, uninstall cancellation/confirmation and clean exit passed.")
+    print("Real terminal preview: Docker enable/disable and saved settings, service controls, uninstall and clean exit passed.")
 
 
 def uninstall_test(project):

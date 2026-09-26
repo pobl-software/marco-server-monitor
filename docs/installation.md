@@ -9,6 +9,7 @@
 - [Install from a local checkout](#install-from-a-local-checkout)
 - [Unattended installation](#unattended-installation)
 - [Collection and reporting settings](#collection-and-reporting-settings)
+- [Docker container monitoring](#docker-container-monitoring)
 
 ## Download and guided setup
 
@@ -46,7 +47,7 @@ Register each server in your CRM and issue a different bearer token for each. Ch
 sudo ./monitor.sh
 ```
 
-On first launch, the terminal interface asks for the CRM URL, server ID and masked bearer token. Collection/reporting intervals and network filters have defaults you can adjust in the same form. Select **Save and start monitor** to install and activate it. Escape cancels without changing anything.
+On first launch, the terminal interface asks for the CRM URL, server ID and masked bearer token. Collection/reporting intervals, network filters and the Docker monitoring toggle have defaults you can adjust in the same form. Docker monitoring starts disabled. Select **Save and start monitor** to install and activate it. Escape cancels without changing anything.
 
 Running `sudo ./install.sh` without arguments opens the same interface. The existing command-line installer remains available for scripts or unattended use:
 
@@ -89,3 +90,15 @@ sudo ./install.sh \
 ```
 
 Quote globs to keep your shell from expanding them. Whole-second/minute/hour intervals are supported (`10s`, `1m`, `1h`); reporting must be at least as long as collection and neither can exceed 24 hours. Unspecified settings return to their documented defaults on reinstall.
+
+## Docker container monitoring
+
+Open **Configure** and move to **Docker monitoring**. **Space** toggles **Enabled / Disabled**; Right/E enables and Left/D disables. Choose **Save and start monitor** to apply the change. Escape cancels. The dashboard shows the saved setting, and Configure preserves it when editing other values. New and existing host-only installations default to **Disabled**.
+
+When enabled, Telegraf's [Docker input](https://github.com/influxdata/telegraf/blob/master/plugins/inputs/docker/README.md) collects container CPU, memory, total network and block I/O counters, lifecycle status and Docker health status when configured. It also collects engine container counts. Running, paused, restarting, exited, dead and created containers are included; resource fields depend on the container state and Docker/cgroup support. Only Compose project/service labels are included; logs and environment values are not sent. See the [receiver contract](crm-integration.md#docker-container-metrics).
+
+Docker must already be installed and running at `/var/run/docker.sock`. This option supports the standard root-owned socket with read/write permission for a dedicated non-root group (normally `docker`); rootless Docker and custom endpoints are not configured by this toggle. Enabling does not install Docker, change socket permissions or add the Telegraf account to a system-wide group. The installer grants the socket's group only to `server-monitor.service` and its collection check, and orders startup after `docker.service`. [Docker socket access grants powerful host control](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user); the configuration form displays this before saving.
+
+Disabling removes the Docker input and the monitor-added supplementary group on restart. Existing account memberships configured outside this project are unchanged. Host collection continues with the usual settings. Missing sockets or failed collection checks leave the current configuration active. Rollback restores the Docker setting and its service permissions together; a changed socket group requires reconfiguration before restoring a Docker-enabled release.
+
+For unattended installation, add `--docker` to the complete installer command. `--no-docker` explicitly disables it; omitting both uses the disabled default. CLI reinstallation resets unspecified settings to defaults, while the configuration form preserves saved values.

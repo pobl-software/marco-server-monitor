@@ -23,6 +23,7 @@ class Settings:
     interval: str = "10s"
     flush_interval: str = "60s"
     interfaces: list = field(default_factory=lambda: ["eth*", "en*"])
+    docker_enabled: bool = False
 
 
 def safe_text(value):
@@ -73,7 +74,8 @@ class MonitorController:
                 url = config["outputs"]["http"][0]["url"]
             settings = Settings(url=url, server_id=config["global_tags"]["server_id"],
                                 interval=config["agent"]["interval"], flush_interval=config["agent"]["flush_interval"],
-                                interfaces=config["inputs"]["net"][0]["interfaces"])
+                                interfaces=config["inputs"]["net"][0]["interfaces"],
+                                docker_enabled="docker" in config["inputs"])
             validate_options(settings)
             return settings
         except (KeyError, IndexError, TypeError, ValueError, OSError):
@@ -199,21 +201,27 @@ class DemoController:
 
 
 class SetupForm:
-    LABELS = ("CRM HTTPS URL", "Server ID", "Bearer token", "Collect every", "Report every", "Interfaces")
+    LABELS = ("CRM HTTPS URL", "Server ID", "Bearer token", "Collect every", "Report every", "Interfaces", "Docker monitoring")
+    DOCKER_FOCUS = 6
+    SAVE_FOCUS = 7
 
     def __init__(self, settings, existing):
         self.values = [settings.url, settings.server_id, "", settings.interval, settings.flush_interval, " ".join(settings.interfaces)]
+        self.docker_enabled = settings.docker_enabled
         self.existing = existing
         self.focus = 0
         self.cursor = len(self.values[0])
         self.error = ""
 
     def masked_value(self, index):
+        if index == self.DOCKER_FOCUS:
+            return "[ Enabled ]" if self.docker_enabled else "[ Disabled ]"
         return "*" * len(self.values[index]) if index == 2 else self.values[index]
 
     def submit(self):
         settings = Settings(url=self.values[0].strip(), server_id=self.values[1].strip(), interval=self.values[3].strip(),
-                            flush_interval=self.values[4].strip(), interfaces=self.values[5].split())
+                            flush_interval=self.values[4].strip(), interfaces=self.values[5].split(),
+                            docker_enabled=self.docker_enabled)
         validate_options(settings)
         token = self.values[2]
         if token:
@@ -226,13 +234,20 @@ class SetupForm:
         if key in ("\x1b", "\x03"):
             return "cancel"
         if key in ("\t", curses.KEY_DOWN, curses.KEY_BTAB, curses.KEY_UP):
-            self.focus = (self.focus + (-1 if key in (curses.KEY_BTAB, curses.KEY_UP) else 1)) % 7
+            self.focus = (self.focus + (-1 if key in (curses.KEY_BTAB, curses.KEY_UP) else 1)) % (self.SAVE_FOCUS + 1)
             self.cursor = len(self.values[self.focus]) if self.focus < 6 else 0
         elif key in ("\n", "\r", curses.KEY_ENTER):
-            if self.focus == 6:
+            if self.focus == self.SAVE_FOCUS:
                 return "submit"
             self.focus += 1
             self.cursor = len(self.values[self.focus]) if self.focus < 6 else 0
+        elif self.focus == self.DOCKER_FOCUS:
+            if key == " ":
+                self.docker_enabled = not self.docker_enabled
+            elif key in (curses.KEY_RIGHT, "e", "E"):
+                self.docker_enabled = True
+            elif key in (curses.KEY_LEFT, "d", "D"):
+                self.docker_enabled = False
         elif self.focus < 6:
             value = self.values[self.focus]
             if key in (curses.KEY_BACKSPACE, "\x7f", "\b"):
@@ -302,23 +317,24 @@ class TerminalUI:
         self.put(height - 2, 3, "-" * (width - 6))
 
     def render_dashboard(self):
-        self.header("Host metrics  /  Setup and service controls")
+        self.header("Server metrics  /  Setup and service controls")
         state = self.snapshot or {"installed": False, "label": "Loading", "properties": {}, "settings": None}
         properties, settings = state["properties"], state["settings"]
         label = state["label"]
         self.put(5, 3, "Status", curses.A_DIM)
-        self.put(5, 20, label.upper(), self.style(2 if label == "Running" else 3))
+        self.put(5, 22, label.upper(), self.style(2 if label == "Running" else 3))
         rows = [("Server ID", settings.server_id if settings else "Unavailable"),
                 ("CRM endpoint", visible_url(settings.url) if settings and state["installed"] else "Not configured"),
                 ("Collection", settings.interval if settings else "Unavailable"),
                 ("Reporting", settings.flush_interval if settings else "Unavailable"),
                 ("Interfaces", "  ".join(settings.interfaces) if settings else "Unavailable"),
+                ("Docker monitoring", ("Enabled" if settings.docker_enabled else "Disabled") if settings else "Unavailable"),
                 ("Start at boot", properties.get("UnitFileState", "Not configured")),
                 ("Agent PID / RAM", properties.get("MainPID", "-") + " / " + memory_label(properties.get("MemoryCurrent", ""))),
                 ("Started", properties.get("ExecMainStartTimestamp") or "-")]
         for index, (name, value) in enumerate(rows):
             self.put(7 + index, 3, name, curses.A_DIM)
-            self.put(7 + index, 20, value)
+            self.put(7 + index, 22, value)
         self.put(16, 3, "Service status does not confirm delivery to your CRM.", curses.A_DIM)
         height, width = self.screen.getmaxyx()
         self.put(18, 3, self.progress if self.busy else self.notice or state.get("error", ""), self.style(3) if self.error else 0)
@@ -335,7 +351,8 @@ class TerminalUI:
         form = self.form
         self.header("Configure monitor" if form.existing else "First setup  /  Connect this server to your CRM")
         height, width = self.screen.getmaxyx()
-        self.put(5, 3, "Enter your endpoint and identity. The bearer token stays hidden.")
+        self.put(5, 3, "Docker socket access grants control over this host." if form.focus == form.DOCKER_FOCUS
+                 else "Enter your endpoint and identity. The bearer token stays hidden.")
         for index, label in enumerate(form.LABELS):
             y = 7 + index * 2
             self.put(y, 3, label, curses.A_BOLD if form.focus == index else curses.A_DIM)
@@ -346,10 +363,11 @@ class TerminalUI:
             if not value and index == 2:
                 shown = "(blank keeps existing token)" if form.existing else "(required)"
             self.put(y, 22, shown.ljust(available), curses.A_REVERSE if form.focus == index else 0, limit=available)
-        self.put(19, 3, "Interfaces: space-separated names/globs, e.g. eth* en* or bond0", curses.A_DIM)
+        self.put(18, 3, "Interfaces: space-separated names/globs, e.g. eth* en* or bond0", curses.A_DIM)
         self.put(20, 3, form.error, self.style(3))
-        self.put(height - 3, 3, "  Save and start monitor  ", curses.A_REVERSE if form.focus == 6 else curses.A_BOLD)
-        self.put(height - 1, 3, "Tab / arrows to move   Enter to continue/save   Esc to cancel   Ctrl-U clear")
+        self.put(height - 3, 3, "  Save and start monitor  ", curses.A_REVERSE if form.focus == form.SAVE_FOCUS else curses.A_BOLD)
+        self.put(height - 1, 3, "Space / Left / Right to toggle   Tab / Enter to continue   Esc to cancel" if form.focus == form.DOCKER_FOCUS
+                 else "Tab / arrows to move   Enter to continue/save   Esc to cancel   Ctrl-U clear")
         try:
             curses.curs_set(1 if form.focus < 6 else 0)
             if form.focus < 6:
