@@ -1,0 +1,8 @@
+__pycache__
+**/__pycache__
+.git
+*.token
+*.env
+test-results
+.venv
+.DS_Store

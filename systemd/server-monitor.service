@@ -1,0 +1,32 @@
+# Managed by server-monitor
+[Unit]
+Description=Host metrics delivered to the CRM by Telegraf
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=telegraf
+Group=telegraf
+EnvironmentFile=/etc/server-monitor/current/credentials.env
+ExecStart=/usr/bin/telegraf --config /etc/server-monitor/current/telegraf.conf
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target
